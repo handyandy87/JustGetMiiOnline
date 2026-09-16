@@ -1,0 +1,103 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# A tag and the branch it points into are different refs, so pushing main and the
+# tag together still gets a build for each.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build the plugin
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+
+      # Nothing in this job reaches devkitPro's own servers. Every image comes from
+      # ghcr.io and the Dockerfile runs no package manager, so a devkitPro outage or
+      # a rate limit cannot turn this run red.
+      - name: Build the toolchain image
+        run: docker build --progress=plain -t justgetmiionline-toolchain .
+
+      - name: Record the toolchain
+        continue-on-error: true
+        run: |
+          docker run --rm justgetmiionline-toolchain sh -c \
+            '"$DEVKITPPC"/bin/powerpc-eabi-gcc --version | head -1; dkp-pacman -Q | sort'
+
+      # The image carries the toolchain and not the source, so the checkout is bind
+      # mounted at the WORKDIR the Dockerfile sets. CMD is already make, so no override.
+      - name: make
+        run: docker run --rm -v "$PWD":/app justgetmiionline-toolchain
+
+      # Everything the container wrote landed owned by root. Hand the workspace back
+      # before anything else touches it, whether the build passed or failed.
+      - name: Return the workspace
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .
+
+      # The Makefile's all target deletes the .wps and exits 1 when Aroma's plugin
+      # loader would refuse it, so make has already failed by this point. Checked
+      # again so no path can reach the upload with nothing to upload.
+      - name: Check the plugin survived the loader gate
+        run: test -s JustGetMiiOnline.wps
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: JustGetMiiOnline.wps
+          path: JustGetMiiOnline.wps
+          if-no-files-found: error
+
+  release:
+    name: Publish the release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: JustGetMiiOnline.wps
+
+      # Aroma's plugin list shows the string compiled into the plugin, not the tag.
+      # Those two drifted once already, so a mismatch stops the release rather than
+      # shipping a build that misreports which release it is.
+      - name: Check the plugin version matches the tag
+        run: |
+          declared=$(sed -n 's/^WUPS_PLUGIN_VERSION("\(.*\)");$/\1/p' src/main.cpp)
+          echo "tag: $GITHUB_REF_NAME | declared: $declared"
+          if [ "$GITHUB_REF_NAME" != "$declared" ]; then
+            echo "::error file=src/main.cpp::declares $declared but the tag is $GITHUB_REF_NAME"
+            exit 1
+          fi
+
+      # Re-runnable: a retried release job replaces the asset instead of failing on
+      # a release that the first attempt already created.
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" JustGetMiiOnline.wps --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" JustGetMiiOnline.wps \
+              --title "$GITHUB_REF_NAME" \
+              --verify-tag \
+              --notes "Copy \`JustGetMiiOnline.wps\` to \`sd:/wiiu/environments/aroma/plugins/\`, alongside Protarium's own Inkay plugin and module.
+
+          Requires Protarium's build of Inkay: https://github.com/Protarium-Network/Inkay-GitHub-Release"
+          fi

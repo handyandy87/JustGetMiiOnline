@@ -1,0 +1,16 @@
+BasedOnStyle: LLVM
+IndentWidth: 4
+ColumnLimit: 100
+MaxEmptyLinesToKeep: 1        # one blank line between blocks, never two
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# Deliberate. `ReflowComments: true` resolves to Always, which rewraps comment
+# bodies at ColumnLimit and pulls the following comment line up into the
+# wrapped one. Any hand aligned comment, an offset table, a field map, an
+# ASCII diagram, is silently corrupted the first time someone runs the
+# formatter. This formatter's job is normalizing code whitespace. Comment
+# bodies are hand authored content and it must not rewrite them.
+#
+# Use the bool `false`, not `Never`. The enum spellings only parse on
+# clang-format 20 and later; the bool works on every version.
+ReflowComments: false

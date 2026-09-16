@@ -1,0 +1,34 @@
+# Everyone's editor should agree so formatting never shows up in a diff.
+#
+# `root = true` is not optional. Without it EditorConfig keeps walking up and
+# merges every ancestor file it finds, including one in the developer's home
+# directory, so the result depends on where the repo is checked out.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 4
+
+[*.{js,jsx,ts,tsx,json,yml,yaml}]
+indent_size = 2
+
+# [Makefile] alone matches that exact basename. A lowercase makefile, a
+# GNUmakefile, a Makefile.am or a *.mk include falls through to the four space
+# default above, and a recipe line indented with spaces is not a style problem,
+# it is "*** missing separator. Stop."
+[{Makefile,makefile,GNUmakefile,Makefile.*,*.mk,*.mak}]
+indent_style = tab
+
+# Blank context lines in a patch are a single significant space. Trimming them
+# corrupts the file.
+[*.{patch,diff}]
+trim_trailing_whitespace = false
+insert_final_newline = false
+
+[*.md]
+trim_trailing_whitespace = false

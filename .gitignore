@@ -1,0 +1,37 @@
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# devkitPPC / libogc build output
+build/
+*.o
+*.d
+*.a
+*.elf
+*.dol
+*.map
+
+# Python builders
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ruff_cache/
+*.egg-info/
+
+# Console binaries. Nothing extracted from a shipped build belongs in history.
+*.wms
+*.wps
+*.rpl
+*.rpx
+
+# Any config carrying real values. Templates are tracked, filled-in files are not.
+*.local.ini
+inkay_config.local.h
+
+# Local-only working state. Ignored here rather than only in a developer's global
+# excludes, so a fresh clone protects itself.
+.scratch/
+*.local.txt
