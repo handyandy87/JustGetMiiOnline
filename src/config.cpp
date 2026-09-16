@@ -21,7 +21,7 @@
 #include "notify.h"
 #include "olv.h"
 #include "plaza.h"
-#include "secret.h"
+#include "rosepatcher.h"
 #include "spotpass.h"
 #include "token.h"
 
@@ -263,17 +263,8 @@ void debug_log_changed(ConfigItemBoolean *, bool value) {
     log_storage(WUPSStorageAPI_StoreU32(nullptr, KEY_DEBUG_LOG, value ? 1u : 0u), KEY_DEBUG_LOG);
 }
 
-// Turning it on is the action. Turning it off isn't, so it does nothing: there's no
-// un-importing, and a stored constant is only ever replaced by a later import that
-// succeeded.
-void import_requested(ConfigItemBoolean *, bool value) {
-    if (value) {
-        secret_import();
-    }
-}
-
-// Turning it on is the action, same shape as the import above, and turning it off
-// isn't, so it does nothing. There's no un-resetting a plaza.
+// Turning it on is the action, and turning it off isn't, so it does nothing. There's no
+// un-resetting a plaza.
 void plaza_reset_requested(ConfigItemBoolean *, bool value) {
     if (!value) {
         return;
@@ -302,11 +293,25 @@ WUPSConfigAPICallbackStatus add_stub(WUPSConfigCategoryHandle category, const ch
 }
 
 WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
+    // RosePatcher's options, read while the menu is open and set only after it has closed.
+    // rosepatcher.h has why the write can't happen any sooner.
+    rosepatcher_check(Config::miiverse);
+
     // The log says this too, but the log isn't where anyone looks. This plugin
     // supplements one particular build and does nothing beside any other, and there's
     // more than one way to end up in that situation.
     if (const char *warning = account_warning()) {
         if (add_stub(root, warning) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+        }
+    }
+
+    // Said up here, because backing out of the menu relaunches the console for it even when
+    // nothing on this page was touched, and a relaunch nobody was told about reads as a
+    // crash. Only shown while RosePatcher's options don't match yet.
+    if (rosepatcher_out_of_step()) {
+        if (add_stub(root, "Backing out sets RosePatcher's options to match") !=
+            WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
             return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
         }
     }
@@ -331,7 +336,7 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
     // Second, and independent of the setting above: an account switch leaves this where
     // it is, so what it shows is what was chosen. Both account servers offer all three.
     // Juxt on Protarium and Protaverse on Pretendo route their token request, and
-    // Roseverse builds its own, which choice.h sets out by miiverse_routed.
+    // RosePatcher answers Roseverse's, which choice.h sets out by miiverse_routed.
     //
     // Positions, not enum values, looked up instead of cast, so the item shows what's
     // actually selected whatever order the list is in.
@@ -401,35 +406,6 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
             return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
         }
     }
-
-    // Reported rather than chosen, so a stub and not a selectable item. Three
-    // values and no fourth, which is why the spelling lives in secret.h.
-    char status[128];
-    std::snprintf(status, sizeof(status), "Roseverse Import Status: %s",
-                  import_state_name(secret_state()));
-    if (add_stub(root, status) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-        return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-    }
-
-    // The one conditional line left in this menu, and the only prose. Every way an
-    // import fails calls for something different to be done about it, the log needs a
-    // debugger to read, and "Import Failed" with the reason nowhere would send somebody
-    // back to a menu that can't tell them anything. It only shows up when there's a
-    // failure to explain.
-    if (const char *why = secret_failure()) {
-        if (add_stub(root, why) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-    }
-
-    WUPSConfigItemHandle import_item;
-    err = WUPSConfigItemBoolean_CreateEx(
-        "roseverse_import", "Import from Roseverse", false, false, &import_requested,
-        "Yes", "No", &import_item);
-    if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
-
-    err = WUPSConfigAPI_Category_AddItem(root, import_item);
-    if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
 
     // The last item at the root, and deliberately not described as being above Debug.
     // The menu backend draws every sub-category before any item, so the Debug page sits
@@ -593,106 +569,29 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         }
     }
 
-    // This used to say the token was somebody else's to mint. It isn't any more, so
-    // these report it the way everything else here is reported: as counts, plus one
-    // line naming the last thing that stopped a token being built.
-    //
-    // Seen, answered and passed are three numbers instead of one because all three
-    // interesting failures look identical in a single count. Zero seen means the hook
-    // never ran. Seen but never answered means it ran and declined, and the status line
-    // says why. Answered with a sign-in that still failed means the token was built and
-    // Roseverse refused it, which is the one result that says the remaining problem
-    // isn't on this console.
+    // Whether RosePatcher's Connect to Roséverse and Connect to Rosé News match this
+    // plugin's Miiverse, read when the menu opened. "in step" is the working reading, and
+    // it's shown on every Miiverse, because an option left on breaks Protaverse and Juxt
+    // as surely as one left off breaks Roseverse.
+    std::snprintf(line, sizeof(line), "RosePatcher options: %s", rosepatcher_status());
+    if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+        return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+    }
+
+    // Roseverse's token is RosePatcher's to answer, so this reports whether any Miiverse
+    // request got past it to this plugin, and what came of the last one. token.h has the
+    // reading by token_roseverse_status: "0 reached" is the working one, and a request
+    // that took seconds went to an account server instead.
     if (Config::miiverse == Miiverse::Roseverse) {
-        std::snprintf(line, sizeof(line), "Token: %u seen, %u answered, %u passed on",
-                      static_cast<unsigned>(token_requests_seen()),
-                      static_cast<unsigned>(token_requests_answered()),
-                      static_cast<unsigned>(token_requests_passed()));
+        std::snprintf(line, sizeof(line), "RosePatcher token: %s", token_roseverse_status());
         if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
             return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        std::snprintf(line, sizeof(line), "Token state: %s", token_status());
-        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        // Which process asked. Beside the counts, not instead of them: the counts say
-        // whether anything asked at all, and this says where, which is the difference
-        // between watching the wrong process and not being installed anywhere.
-        std::snprintf(line, sizeof(line), "Token seen in: %s", token_where());
-        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        // What the applet install did. The applet fetches its own token, in a process
-        // the static replacement never reached, so this is installed by address from
-        // the applet's own file open. "installed in pid 9" here with the applet named
-        // in the line above is the fix working; anything else is where it stopped.
-        std::snprintf(line, sizeof(line), "Applet token hook: %s", token_applet_status());
-        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        // The same thing for the in-game overlay, process 7, which was measured
-        // untouched before this existed. "installed in pid 7" is the working reading.
-        // "nn_act not loaded here" that never changes means the overlay's file opens
-        // all arrive before nn_act does, and the trigger is in the wrong place, since
-        // this retries on every one of them until it takes. Read it beside the line
-        // above: `overlay` there is what says the overlay actually asked for a token.
-        std::snprintf(line, sizeof(line), "Overlay token hook: %s", token_overlay_status());
-        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        // How many times the console loaded an account, each of which rebuilds the
-        // token. Zero here is the reading that says the hook isn't installed, which
-        // matters because the rebuild is what stops a token built too early from
-        // standing.
-        std::snprintf(line, sizeof(line), "Account loads: %u",
-                      static_cast<unsigned>(token_account_loads()));
-        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        // Which moment built the token that's cached now, and where. A token built
-        // before the account finished loading is well formed and wrong, and on hardware
-        // that made Roseverse behave as though no account were set up while every other
-        // line here still read as success. "account load" is what should be standing by
-        // the time the applet asks. "app start" beside a launch that failed that way is
-        // the thing to report.
-        std::snprintf(line, sizeof(line), "Token built: %s", token_build_origin());
-        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-        }
-
-        // Where nn_act's token function sits in each process that looked, and what
-        // was sitting at that address. Process 2 is the Wii U Menu, 15 a game, 9 the
-        // Miiverse applet, 7 the in-game overlay.
-        //
-        // A row each, not one line for all of them. Four on one line ran off the edge
-        // of the menu and cost a console run to find out, and the lookup list further
-        // down has always been a row each for the same reason.
-        //
-        // Read the last field first, and read it in the past tense. It's captured once,
-        // when the process is first seen, and in the applet and the overlay that
-        // happens before this plugin installs its own patch there. So `found patched`
-        // means something had already replaced that function before this looked, and
-        // `found unpatched` means nothing had. A process showing `found unpatched`
-        // beside a hook line saying installed is the two of them agreeing. The raw
-        // instruction is printed beside it so the verdict can be checked instead of
-        // believed. Nothing is patched to read any of this.
-        for (size_t i = 0; i < token_act_sighting_count(); ++i) {
-            std::snprintf(line, sizeof(line), "nn_act %s", token_act_sighting(i));
-            if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
-                return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
-            }
         }
     }
 
     // The routed pairings, Juxt on Protarium and Protaverse on Pretendo, where
-    // Miiverse's request gets routed instead of answered or passed on. Shown only
-    // there, for the reason the Roseverse lines above are shown only on Roseverse.
+    // Miiverse's request gets routed instead of passed on. Shown only there, for the
+    // reason the Roseverse line above is shown only on Roseverse.
     //
     // Read the route line by its time first. A call that took a few milliseconds never
     // left the console, so act handed back a token it already held. One that took
@@ -850,6 +749,13 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
 void menu_closed() {
     log_storage(WUPSStorageAPI_SaveStorage(false), "save");
 
+    // RosePatcher's options out of step is reason enough to relaunch, because the relaunch
+    // is the only thing that makes RosePatcher read them again. The root of the menu said
+    // so while it was open.
+    if (rosepatcher_out_of_step()) {
+        Config::change_needs_reboot = true;
+    }
+
     // Nothing changed, so nothing happens. This is the whole reason the relaunch keys
     // on the flag and not on the menu having been open: reading the Debug page is the
     // most common thing anybody opens this menu for, and a console that reboots every
@@ -859,6 +765,14 @@ void menu_closed() {
     }
 
     LOG("selection changed, relaunching to apply it");
+
+    // Whenever this relaunches and RosePatcher is there to set, not only when the check
+    // found its options out of step: a Miiverse changed in this visit wants different
+    // values from the ones checked when the menu opened. The write itself waits for the
+    // application to end, and does nothing if they already match by then.
+    if (rosepatcher_found()) {
+        rosepatcher_arm_sync();
+    }
 
     // Cleared before the calls, not after, because there is no after: normally neither
     // of them returns here. Clearing it below would be dead code that reads as though
@@ -978,11 +892,6 @@ void Config::Init() {
     token_set_target(miiverse);
     token_set_account(account);
     dns_set_account(account);
-
-    // Read here and nowhere else, for the same reason olv_set_target is called
-    // here: this runs where storage is readable and the applet process is not.
-    // Whatever this finds is what the token hook will have to work from.
-    secret_init();
 
     log_storage(WUPSStorageAPI_SaveStorage(false), "save");
 

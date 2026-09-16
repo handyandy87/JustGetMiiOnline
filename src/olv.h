@@ -65,10 +65,10 @@ void olv_set_target(Miiverse target);
 // WHY THERE IS NO APPLICATION-START TRIGGER, AND WHY ADDING ONE IS A TRAP.
 //
 // Neither trigger below is early enough. The Miiverse library reads the discovery
-// URL before either one fires, so on a console pointed at Roseverse the lookup
-// still went to Protarium's host in the same process that had just taken a
-// Roseverse token from this plugin. Writing after their module can't win a race
-// that is already over.
+// URL before either one fires, so back when this plugin built Roseverse's token itself,
+// a console pointed at Roseverse still looked up Protarium's host in the same process
+// that had just taken a Roseverse token from this plugin. Writing after their module
+// can't win a race that is already over.
 //
 // Claiming Nintendo's string at application start, before their module goes
 // looking for it, does fix that. It was built, it worked, and it was removed,
@@ -89,10 +89,14 @@ void olv_apply_foreground();
 //
 // The foreground turned out to be too late. A console pointed at Roseverse still
 // resolved Protarium's discovery host, in the same process that had just taken a
-// Roseverse token from this plugin, so the URL was read before the foreground swap
-// wrote over it. A token request is the earliest signal this plugin gets that the
-// process is about to use Miiverse, rather than just that it came to the front.
-// The once-per-title gate is shared, so whichever arrives first does the work.
+// Roseverse token from this plugin when it still built them, so the URL was read before
+// the foreground swap wrote over it. A token request is the earliest signal this plugin
+// gets that the process is about to use Miiverse, rather than just that it came to the
+// front. The once-per-title gate is shared, so whichever arrives first does the work.
+//
+// On Roseverse this may never fire now. RosePatcher answers the request, and when its
+// patch sits outside mine the request never reaches this plugin at all. The pre-main
+// trigger below doesn't depend on it.
 void olv_apply_for_token();
 
 // Both called at the start of every title, because both are per-process: the
@@ -114,6 +118,11 @@ size_t olv_applet_allowlist_swaps();
 // reads means the handle tracking is wrong, and reads without rewrites means the file
 // arrived in chunks that split the four bytes being looked for. olv.cpp explains that
 // last one.
+//
+// RosePatcher rewrites the same four bytes in its own read hook whenever its Connect to
+// Roséverse option is on, which Roseverse's token needs anyway. So with RosePatcher
+// installed, reads without rewrites can also just mean its hook ran first and left
+// nothing for this one to change.
 size_t olv_tld_opens();
 size_t olv_tld_reads();
 size_t olv_tld_rewrites();

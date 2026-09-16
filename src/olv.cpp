@@ -335,7 +335,7 @@ DECL_FUNCTION(int, FSOpenFile, FSClient *client, FSCmdBlock *block, char *path, 
         repoint_applet();
 
         // The applet fetches its own sign-in token in this process, and the static
-        // token replacement never reaches that. This installs the answer by address,
+        // token replacement never reaches that. This installs the watch by address,
         // right here, at the one point the applet is known to be running and nn_act is
         // loadable. It gates on the setting itself and takes back a stale patch on the
         // others, so it gets called for every setting, like repoint_applet above.
@@ -405,9 +405,9 @@ void olv_set_target(Miiverse chosen) {
 //
 // Neither is early enough on its own. A console pointed at Roseverse still resolved
 // Protarium's discovery host in the same process that had just taken a Roseverse
-// token from this plugin, so the library reads the value before either of these
-// fires. A third trigger that claimed the string at application start did fix that,
-// and had to go: see the note by olv_apply_foreground in olv.h.
+// token from this plugin, back when it built them, so the library reads the value
+// before either of these fires. A third trigger that claimed the string at application
+// start did fix that, and had to go: see the note by olv_apply_foreground in olv.h.
 // The library's own loaded ranges, so a sweep doesn't have to read all of MEM2.
 //
 // This exists because of a regression I caused. Sweeping every byte of MEM2 with a

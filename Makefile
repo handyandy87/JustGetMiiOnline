@@ -57,10 +57,11 @@ LDFLAGS	=	-g $(ARCH) $(OPT) $(RPXSPECS) -Wl,-Map,$(notdir $*.map) \
 
 LDFLAGS	+=	$(WUPSSPECS)
 
-# -lfunctionpatcher is for token.cpp installing the token answer inside the Miiverse
-# applet at runtime, by resolving nn_act there and patching the address. The static
-# WUPS replacement never reaches that process. It sits before -lwut because it calls
-# coreinit through wut's stubs and nothing to its left calls back into it.
+# -lfunctionpatcher is for token.cpp installing the token lend inside the Miiverse
+# applet at runtime on a routed pairing, by resolving nn_act there and patching the
+# address. The static WUPS replacement never reaches that process. It sits before -lwut
+# because it calls coreinit through wut's stubs and nothing to its left calls back into
+# it.
 #
 # -lnotifications is the boot toast in notify.cpp and nothing else. It reaches Aroma's
 # NotificationModule through OSDynLoad at runtime rather than through an import, so a
@@ -68,11 +69,7 @@ LDFLAGS	+=	$(WUPSSPECS)
 # before -lwut for the same reason -lfunctionpatcher does. Linking it is what moved
 # the symbol table's local count onto .bss the first time, and the note by LDFLAGS
 # has why that no longer matters.
-#
-# -lz is for the Roseverse import in secret.cpp and nothing else. It comes from the
-# ppc-zlib portlib, which the Dockerfile's base image already carries, and sits last
-# in the list because everything above may call into it and nothing in it calls back.
-LIBS	:=	-lwups -lfunctionpatcher -lnotifications -lwut -lmocha -lkernel -lz
+LIBS	:=	-lwups -lfunctionpatcher -lnotifications -lwut -lmocha -lkernel
 
 LIBDIRS	:=	$(PORTLIBS) $(WUPS_ROOT) $(WUT_ROOT) $(WUT_ROOT)/usr $(WUMS_ROOT)
 

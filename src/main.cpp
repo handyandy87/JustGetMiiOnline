@@ -42,12 +42,13 @@
 // which account_changed in config.cpp sets out.
 //
 // Roseverse is the third Miiverse and the one that doesn't follow, because it's the
-// one that isn't paired. It never asks an account server for a sign-in token: the
-// token is built on the console instead, from the principal ID and a per-account key
-// on the SD card. So there is no issuer to be wrong and no measured column, and the
-// setting is legal under both. What the account server still decides is which
-// principal ID that is, and Protarium's account server is a proxy in front of
-// Pretendo's rather than one of its own, so the answer is the same number either way.
+// one that isn't paired. It never asks an account server for a sign-in token: Project
+// Rose's RosePatcher plugin builds one on the console instead, from the principal ID and
+// a per-account key it keeps on the SD card. So there is no issuer to be wrong and no
+// measured column, and the setting is legal under both. What the account server still
+// decides is which principal ID that is, and Protarium's account server is a proxy in
+// front of Pretendo's rather than one of its own, so the answer is the same number
+// either way.
 //
 // SpotPass used to follow those two rather than being asked about, and it's the
 // third setting now. What changed is that Roseverse has a SpotPass of its own, so the
@@ -83,20 +84,12 @@
 // taking anything is the gap the loader leaves before the title's entry point, and
 // that's where the swap happens now, with no module needed. olv.h has the detail.
 
-// The sign-in token used to be the one part of Roseverse this plugin didn't
-// supply. It supplies it now, and what made that possible was finding a way to do
-// it without carrying the thing that makes it work.
-//
-// Building the token needs an obfuscation constant that this repo doesn't carry.
-// Embedding it would publish what they chose not to, and this plugin's license
-// would then oblige it to publish it again as source. So it isn't embedded. The
-// user keeps a copy of their module on the SD card, and an action in the menu reads
-// the constant out of it once, on the console, and stores it. secret.h has the
-// mechanism and token.h has the payload.
-//
-// With no imported constant the hook declines every request and the console
-// behaves exactly as it does without this plugin, which is the same rule every
-// other setting here follows.
+// The sign-in token is the one part of Roseverse this plugin doesn't supply. Everything
+// else Roseverse needs from the console, the discovery URL, the applet's allowlist and
+// suffix list, and Rose's SpotPass, this plugin writes, the same as for the other two
+// Miiverses. The token comes from RosePatcher, installed alongside this plugin, which
+// answers Miiverse's request itself and keeps its own account key. token.h has how the
+// two plugins' hooks sit together and what RosePatcher's own options do to them.
 //
 // Whether Juxt accepts the sign-in token was the question the account server
 // setting was added to answer, and hardware answered it: Protarium's account
@@ -121,6 +114,7 @@
 #include "logger.h"
 #include "notify.h"
 #include "olv.h"
+#include "rosepatcher.h"
 #include "spotpass.h"
 #include "token.h"
 
@@ -128,21 +122,20 @@
 
 WUPS_PLUGIN_NAME("JustGetMiiOnline");
 WUPS_PLUGIN_DESCRIPTION("Account server, Miiverse and SpotPass selection for Protarium");
-WUPS_PLUGIN_VERSION("v1.0.1");
+WUPS_PLUGIN_VERSION("v2.0.1");
 WUPS_PLUGIN_AUTHOR("HandyAndy87");
 WUPS_PLUGIN_LICENSE("GPLv3");
 
 WUPS_USE_STORAGE("justgetmiionline");
 
-// Without this there's no filesystem device registered for this plugin at all,
-// only the socket one, and every fopen fails before it has even looked at the
-// path. It's what the Roseverse import needs to read the user's copy of Rose's
-// module.
+// Without this there's no filesystem device registered for this plugin at all, only the
+// socket one, and every fopen fails before it has even looked at the path. It's what
+// rosepatcher.cpp needs to read and write RosePatcher's config file.
 //
-// It showed up after the first hardware attempt reported a missing file that was
-// sitting on the card, which is the failure this produces: the open fails
-// identically whether the path is wrong, the file is absent, or no device exists
-// to ask.
+// It showed up after an earlier hardware attempt, reading a different file, reported a
+// missing file that was sitting on the card, which is the failure this produces: the open
+// fails identically whether the path is wrong, the file is absent, or no device exists to
+// ask.
 WUPS_USE_WUT_DEVOPTAB();
 
 INITIALIZE_PLUGIN() {
@@ -152,9 +145,9 @@ INITIALIZE_PLUGIN() {
     account_init();
 
     // Set up the runtime function patcher, which token.cpp uses to install the token
-    // answer inside the Miiverse applet. Once per boot in this first process is
-    // enough: the resolved entry points live in this plugin's memory, which the
-    // applet shares. The applet is a process this plugin gets no lifecycle hook in.
+    // lend inside the Miiverse applet on a routed pairing. Once per boot in this first
+    // process is enough: the resolved entry points live in this plugin's memory, which
+    // the applet shares. The applet is a process this plugin gets no lifecycle hook in.
     token_init();
 
     // Last, and after Config::Init rather than before it, so the toast names the
@@ -188,21 +181,6 @@ ON_APPLICATION_START() {
     // game that's running rather than the first one after a reboot.
     reset_dns_counters();
 
-    // Where nn_act sits in this process, recorded once per process and never acted
-    // on. It's what says whether the applet's copy is somewhere else entirely, which
-    // is the open question about why a registration by name doesn't reach it.
-    token_note_act_address();
-
-    // Build the Miiverse token here, while this is a process that can. The applet
-    // can't, and after a cold boot straight into Miiverse the applet is the first
-    // thing to ask for one. token.h has the reading that settled it.
-    token_warm_cache();
-
-    // Drop the in-game overlay's patch, so the next overlay session installs into its
-    // own process instead of trusting one added in a previous one. The overlay opens
-    // from inside a game, so this always runs first.
-    token_reset_overlay_hook();
-
     // Before the write, and deliberately not at plugin initialization. Their
     // module is only worth asking once their plugin has initialized it, and two
     // plugins initializing have no order between them. Every plugin has had its
@@ -235,4 +213,9 @@ ON_ACQUIRED_FOREGROUND() {
 }
 
 ON_APPLICATION_ENDS() {
+    // RosePatcher's two options, set here and nowhere earlier, because this is the first
+    // moment after the config menu has closed and nothing can write RosePatcher's own copy
+    // back over them before the relaunch reloads it. rosepatcher.h has why. Does nothing
+    // unless the menu asked for it just before relaunching.
+    rosepatcher_sync(Config::miiverse);
 }

@@ -29,47 +29,62 @@ All three coexist.
 
 ### Extra setup for Roseverse
 
-Skip all of this unless you're planning to use Roseverse.
+Skip this unless you're planning to use Roseverse.
 
-**If you don't have a Roseverse account yet, set one up before this plugin goes anywhere
-near your SD card.** The order matters:
+Roseverse on this build needs **RosePatcher v2**, Project Rose's own plugin, from
+[Project-Rose/RosePatcher](https://github.com/Project-Rose/RosePatcher). Copy its `.wps` into
+`sd:/wiiu/environments/aroma/plugins/` alongside this one. This plugin still points the
+console at Roseverse and at Rose's SpotPass. RosePatcher supplies the Roseverse sign-in and
+looks after your Roseverse account key, which this plugin doesn't do.
 
-1. Install Inkay-Roseverse.
-2. Create your Roseverse account and check it actually works.
-3. Swap Inkay-Roseverse out for Protarium's Inkay. Only one Inkay can be installed at a
-   time, so this is a replacement rather than an addition.
-4. Install this plugin.
+**If you don't have RosePatcher v2, this isn't the build for you.** Use the one from the
+[main branch](https://github.com/handyandy87/JustGetMiiOnline/tree/main) instead, currently
+the [v1.0.1 release](https://github.com/handyandy87/JustGetMiiOnline/releases/tag/v1.0.1).
+It signs in to Roseverse without RosePatcher, and its README has the Roseverse setup for
+that build.
 
-Don't install this plugin until that account is set up and working.
+If you set Roseverse up with a v1 release of this plugin, this one doesn't use
+`sd:/wiiu/roseverse.wms`, so you can delete it. Keep your key file in `sd:/wiiu/olive`,
+though, because RosePatcher reads it.
 
-**If you already have a Roseverse account**
+**If you don't have a Roseverse account yet**, create it with the account server on
+Pretendo:
 
-Two things have to be on the SD card.
+1. With RosePatcher v2 and this plugin installed, open this plugin's menu, set
+   `Network Server` to Pretendo and `Miiverse Service` to Roseverse, and back out. The
+   console relaunches.
+2. Open Miiverse and create your Roseverse account.
 
-**Rose's module.** Download `Inkay-Roseverse.zip` from Project Rose's
-[latest release](https://github.com/Project-Rose/Inkay-Roseverse/releases/latest), not the
-Source code ZIP, and unzip it. You'll get two files, `Inkay-pretendo.wms` and
-`Inkay-pretendo.wps`. Only the `.wms` is needed, so ignore the `.wps`. Rename
-`Inkay-pretendo.wms` to `roseverse.wms` and put it at `sd:/wiiu/roseverse.wms`. That's the
-`wiiu` folder, not the modules folder, and that's deliberate: a second module exporting the
-same symbols under the same name as the one already installed is exactly the collision this
-whole approach avoids. Then hit **Import from Roseverse** in the menu, and
-**Roseverse Import Status** will tell you how it went, and what to fix if it didn't.
+Once the account exists, you can switch `Network Server` between Pretendo and Protarium
+freely.
 
-Once it reads **Imported**, you can delete `sd:/wiiu/roseverse.wms`. The import keeps what it
-read in this plugin's settings, so the file only matters again if you import from a newer
-copy of Rose's module. Leave your user key below where it is, though: that one gets read
-every time.
-
-**Your user key.** If you've already set Roseverse up on this console and used it, you've
-got one and there's nothing to do here. Otherwise grab it from
-[Project Rose's FAQ](https://miiverse.projectrose.cafe/guide/faq) and follow their steps:
+**If you already have a Roseverse account but haven't used it on this console**, the console
+needs your key file. Grab it from
+[Project Rose's FAQ](https://miiverse.projectrose.cafe/guide/faq), where it's called the Wii U
+user key, and follow their steps:
 
 - Download the Wii U user key.
 - Put your Wii U SD card in your device, or set up FTPiiU if you've got it.
 - Put the `.txt` key file in `sd:/wiiu/olive`, replacing the existing one if there is one.
 - Open your profile and try opening Miiverse. If you went the FTPiiU route, restart the
   console first.
+
+**If you've used Roseverse on this console before, you shouldn't need the key steps at
+all.** The key stays on the SD card, even after changing Inkay versions.
+
+Two of RosePatcher's own options would fight the settings here, so this plugin sets them
+for you:
+
+- **Connect to Roséverse** is on while `Miiverse Service` is Roseverse, and off otherwise.
+  It's what switches RosePatcher's sign-in on, and left on it hands every Miiverse sign-in
+  Rose's token, which Protaverse and Juxt won't accept.
+- **Connect to Rosé News** stays off. It would move SpotPass by itself, and the SpotPass
+  setting here already covers Rose's.
+
+They get set when backing out of this plugin's menu relaunches the console. If they've
+drifted since, say because you changed one in RosePatcher's menu, the top of this plugin's
+menu says so, and backing out relaunches the console to put them back. RosePatcher's TVii
+options are its own business, and nothing here touches them.
 
 ## Opening the menu
 
@@ -131,7 +146,8 @@ takes its token from its own account server, so on those two pairings I route th
 sign-in request to the Miiverse's own account server and leave everything else alone.
 
 **Roseverse is Project Rose's Miiverse revival**, and it isn't paired to an account server
-at all. RosePatcher can sit alongside this if you want their implementation of TVii.
+at all. Its sign-in comes from RosePatcher v2, installed alongside this plugin as set out
+under Installing.
 
 ### SpotPass
 
@@ -144,10 +160,10 @@ the Miiverse in use.
 ## Building
 
 devkitPPC and wut, plus five libraries devkitPro doesn't package: the plugin system,
-libmocha, libkernel, libfunctionpatcher and libnotifications. The toolchain and the
-`ppc-zlib` portlib come from devkitPro's package manager; build those five from source and
-`make install` each one. Build libkernel with a plain `make`: its generated linker script
-races under parallel make and the build fails on a missing file.
+libmocha, libkernel, libfunctionpatcher and libnotifications. The toolchain comes from
+devkitPro's package manager; build those five from source and `make install` each one.
+Build libkernel with a plain `make`: its generated linker script races under parallel make
+and the build fails on a missing file.
 
 ```bash
 make
@@ -180,5 +196,5 @@ them. The game constants in it are numbers I measured off software that's alread
 
 Roseverse's addresses and URLs come from upstream Inkay's own table, where both Protarium's
 fork and Project Rose's inherited them, and Rose's hostnames are read out of
-Inkay-Roseverse's copy of that table. Project Rose's obfuscation constant is not recorded in
-this repository.
+Inkay-Roseverse's copy of that table. This plugin doesn't import, store or use Project
+Rose's obfuscation constant, and it isn't recorded in this repository.

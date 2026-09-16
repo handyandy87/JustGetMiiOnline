@@ -1,11 +1,13 @@
 name: Build
 
+# rosepatcher-v2-support is the RosePatcher v2 build, kept beside main rather than merged
+# into it, so it gets built on its own pushes and pull requests the same way main does.
 on:
   push:
-    branches: [main]
+    branches: [main, rosepatcher-v2-support]
     tags: ["v*"]
   pull_request:
-    branches: [main]
+    branches: [main, rosepatcher-v2-support]
   workflow_dispatch:
 
 # A tag and the branch it points into are different refs, so pushing main and the
@@ -87,6 +89,10 @@ jobs:
 
       # Re-runnable: a retried release job replaces the asset instead of failing on
       # a release that the first attempt already created.
+      #
+      # A pre-release from this branch, so it never takes Latest from main's release while
+      # RosePatcher v2 isn't out. main's README sends people to the Releases page, and
+      # Latest is what they'd download.
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -97,7 +103,14 @@ jobs:
             gh release create "$GITHUB_REF_NAME" JustGetMiiOnline.wps \
               --title "$GITHUB_REF_NAME" \
               --verify-tag \
-              --notes "Copy \`JustGetMiiOnline.wps\` to \`sd:/wiiu/environments/aroma/plugins/\`, alongside Protarium's own Inkay plugin and module.
+              --prerelease \
+              --notes "# This release is ONLY for RosePatcher v2
 
-          Requires Protarium's build of Inkay: https://github.com/Protarium-Network/Inkay-GitHub-Release"
+          **If you're using RosePatcher v1, which only supports TVii, or no RosePatcher at all, use v1.0.1 from the main branch instead: https://github.com/handyandy87/JustGetMiiOnline/releases/tag/v1.0.1**
+
+          Copy \`JustGetMiiOnline.wps\` to \`sd:/wiiu/environments/aroma/plugins/\`, alongside Protarium's own Inkay plugin and module.
+
+          Requires Protarium's build of Inkay: https://github.com/Protarium-Network/Inkay-GitHub-Release
+
+          Requires RosePatcher v2: https://github.com/Project-Rose/RosePatcher"
           fi

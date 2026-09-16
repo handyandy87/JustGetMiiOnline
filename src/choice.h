@@ -79,7 +79,8 @@ constexpr Miiverse miiverse_for(Account account) {
 // Miiverse's own for the length of that one request, and everything else stays where
 // the setting put it.
 //
-// Roseverse is never routed. Its token is built on the console rather than asked for,
+// Roseverse is never routed. Its token comes from Project Rose's RosePatcher plugin,
+// which answers Miiverse's request on the console rather than asking an account server,
 // so there's no issuer to be wrong.
 //
 // Protaverse on Pretendo stayed off the menu until its request could be routed, and
