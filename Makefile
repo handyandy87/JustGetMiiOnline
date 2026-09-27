@@ -17,7 +17,8 @@ WUMS_ROOT := $(DEVKITPRO)/wums
 
 TARGET		:=	JustGetMiiOnline
 BUILD		:=	build
-SOURCES		:=	src
+# src/youtube is WiiULeanback's source as it stands, which youtube.cpp explains.
+SOURCES		:=	src src/youtube
 DATA		:=
 INCLUDES	:=	src
 
@@ -69,7 +70,13 @@ LDFLAGS	+=	$(WUPSSPECS)
 # before -lwut for the same reason -lfunctionpatcher does. Linking it is what moved
 # the symbol table's local count onto .bss the first time, and the note by LDFLAGS
 # has why that no longer matters.
-LIBS	:=	-lwups -lfunctionpatcher -lnotifications -lwut -lmocha -lkernel
+#
+# -lcontentredirection is the YouTube Patcher's certificate layer in youtube.cpp. Like
+# -lnotifications it reaches its module through OSDynLoad at runtime, so a console
+# without ContentRedirectionModule still loads this plugin and YouTube just can't reach
+# the revival host over https. It sits before -lwut for the same reason as well.
+LIBS	:=	-lwups -lfunctionpatcher -lnotifications -lcontentredirection -lwut -lmocha \
+			-lkernel
 
 LIBDIRS	:=	$(PORTLIBS) $(WUPS_ROOT) $(WUT_ROOT) $(WUT_ROOT)/usr $(WUMS_ROOT)
 
@@ -100,6 +107,13 @@ export OFILES_BIN	:=	$(addsuffix .o,$(BINFILES))
 export OFILES_SRC	:=	$(CPPFILES:.cpp=.o) $(CFILES:.c=.o) $(SFILES:.s=.o)
 export OFILES 		:=	$(OFILES_BIN) $(OFILES_SRC)
 export HFILES_BIN	:=	$(addsuffix .h,$(subst .,_,$(BINFILES)))
+
+# Every object lands in one flat build folder named after its source file, so a file
+# copied into src/youtube with the same name as one in src would build over it.
+CLASHES	:=	$(foreach o,$(sort $(OFILES)),$(if $(word 2,$(filter $(o),$(OFILES))),$(o)))
+ifneq ($(strip $(CLASHES)),)
+$(error two sources build to the same object, rename one: $(CLASHES))
+endif
 
 export INCLUDE	:=	$(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) \
 			$(foreach dir,$(LIBDIRS),-I$(dir)/include) \

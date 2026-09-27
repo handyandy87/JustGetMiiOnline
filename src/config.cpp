@@ -24,6 +24,8 @@
 #include "rosepatcher.h"
 #include "spotpass.h"
 #include "token.h"
+#include "youtube.h"
+#include "youtube/settings.h"
 
 #include <wups.h>
 #include <wups/storage.h>
@@ -408,9 +410,9 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
     }
 
     // The last item at the root, and deliberately not described as being above Debug.
-    // The menu backend draws every sub-category before any item, so the Debug page sits
-    // at the top of this screen whatever order things get added in. This is last among
-    // the items, which is as low as anything can go.
+    // The menu backend draws every sub-category before any item, so the YouTube Patcher
+    // and Debug pages sit at the top of this screen whatever order things get added in.
+    // This is last among the items, which is as low as anything can go.
     //
     // Only the control lives here now. What it did is on the Debug page with every
     // other readout, which is also where the not-offered case is reported, so nothing
@@ -425,6 +427,23 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         err = WUPSConfigAPI_Category_AddItem(root, plaza_item);
         if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
     }
+
+    // The YouTube Patcher's four settings, on a page of their own. Pages draw in the order
+    // they're added, so this one sits above Debug. youtube.cpp builds what's on it, through
+    // youtube/settings.h, and none of it sets change_needs_reboot: YouTube reads it when it
+    // starts, so a change takes effect the next time it does.
+    WUPSConfigCategoryHandle youtube;
+    err = WUPSConfigAPI_Category_Create({"YouTube Patcher"}, &youtube);
+    if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
+
+    if (!settings_menu(youtube)) {
+        LOG("config error: the YouTube Patcher page could not be built");
+        return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+    }
+
+    // Adding a category transfers ownership of it, so this handle is spent here.
+    err = WUPSConfigAPI_Category_AddCategory(root, youtube);
+    if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
 
     // Nothing in this plugin can log from the Miiverse applet, and the system log needs
     // a debugger to read even where logging does work. These counters are the only
@@ -696,6 +715,14 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
     }
 
+    // What the YouTube Patcher did the last time YouTube started this boot, up to three lines,
+    // and none with the patcher off and nothing started. youtube_report_line has how they read.
+    for (size_t i = 0; youtube_report_line(i, line, sizeof(line)); ++i) {
+        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+        }
+    }
+
     // Advanced Overrides, just above the logging switch. A setting, not a readout, and
     // down here instead of beside the three at the root because what it unlocks isn't
     // meant to be found by accident: Rose's SpotPass with Protarium as the account
@@ -892,6 +919,9 @@ void Config::Init() {
     token_set_target(miiverse);
     token_set_account(account);
     dns_set_account(account);
+
+    // The YouTube Patcher's four, stored beside these under youtube_ keys.
+    settings_load();
 
     log_storage(WUPSStorageAPI_SaveStorage(false), "save");
 
