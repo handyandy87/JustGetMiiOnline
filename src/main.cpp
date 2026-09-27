@@ -135,7 +135,7 @@
 WUPS_PLUGIN_NAME("JustGetMiiOnline");
 WUPS_PLUGIN_DESCRIPTION("Account server, Miiverse and SpotPass selection for Protarium, and a "
                         "YouTube patcher");
-WUPS_PLUGIN_VERSION("v2.0.1");
+WUPS_PLUGIN_VERSION("v2.0.2");
 WUPS_PLUGIN_AUTHOR("HandyAndy87");
 WUPS_PLUGIN_LICENSE("GPLv3");
 

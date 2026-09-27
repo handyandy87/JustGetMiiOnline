@@ -50,7 +50,7 @@ looks after your Roseverse account key, which this plugin doesn't do.
 
 **If you don't have RosePatcher v2, this isn't the build for you.** Use the one from the
 [main branch](https://github.com/handyandy87/JustGetMiiOnline/tree/main) instead, currently
-the [v1.0.1 release](https://github.com/handyandy87/JustGetMiiOnline/releases/tag/v1.0.1).
+the [v1.0.2 release](https://github.com/handyandy87/JustGetMiiOnline/releases/tag/v1.0.2).
 It signs in to Roseverse without RosePatcher, and its README has the Roseverse setup for
 that build.
 

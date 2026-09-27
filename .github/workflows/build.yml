@@ -106,7 +106,7 @@ jobs:
               --prerelease \
               --notes "# This release is ONLY for RosePatcher v2
 
-          **If you're using RosePatcher v1, which only supports TVii, or no RosePatcher at all, use v1.0.1 from the main branch instead: https://github.com/handyandy87/JustGetMiiOnline/releases/tag/v1.0.1**
+          **If you're using RosePatcher v1, which only supports TVii, or no RosePatcher at all, use v1.0.2 from the main branch instead: https://github.com/handyandy87/JustGetMiiOnline/releases/tag/v1.0.2**
 
           Copy \`JustGetMiiOnline.wps\` to \`sd:/wiiu/environments/aroma/plugins/\`, alongside Protarium's own Inkay plugin and module.
 
