@@ -4,7 +4,8 @@ An Aroma plugin that picks which account server your Wii U signs in against, whi
 Miiverse it talks to, and which network serves SpotPass. Protarium's own Inkay stays
 installed and in charge of everything else. I move those three things and nothing else.
 
-It also gets the Wii U YouTube app working again, with the YouTube Patcher.
+It also gets the Wii U YouTube app working again with the YouTube Patcher, allowing you to
+choose from the 2012, 2013, 2016 and current official versions.
 
 **This only works with Protarium's version of Inkay, and you want their latest build:
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).**
@@ -17,7 +18,7 @@ What you get out of it:
   Roseverse.
 - A toast at every boot naming the account server and Miiverse in use, so you always know
   what you're on without opening anything.
-- The YouTube app back, as the 2012, 2013 or 2016 version of itself, with search
+- The YouTube app back, as the 2012, 2013, 2016 or current official version, with search
   suggestions and comments on the GamePad.
 
 ## Installing
@@ -34,9 +35,8 @@ All three coexist.
 
 The YouTube Patcher also needs `ContentRedirectionModule.wms` in
 `sd:/wiiu/environments/aroma/modules/`. It ships with Aroma, so it's most likely there
-already. If you've got another YouTube plugin installed, like GiveMiiYouTube or
-WiiULeanback, take it out, or turn the YouTube Patcher off, so only one of them patches the
-app.
+already. If you've got another YouTube patcher installed, like GiveMiiYouTube or
+WiiULeanback, uninstall it or disable it before you turn on the YouTube Patcher here.
 
 ### Extra setup for Roseverse
 
@@ -179,21 +179,25 @@ patcher reports that token as issued and points the app at a revival host that s
 old TV apps, while the video itself still comes straight from Google. You don't change any
 DNS settings.
 
+**If you have another YouTube patcher installed, uninstall it or disable it before enabling
+this one.** Only one of them should be patching the app.
+
 It has a page of its own in the menu, **YouTube Patcher**:
 
 | Setting | Choices |
 |---|---|
-| `YouTube Patcher` | Enabled or Disabled, Enabled to start with |
-| `App Version Experience` | one of the five versions below, 2013 (Standard) to start with |
-| `Search Suggestions` | Enabled or Disabled, Enabled to start with |
-| `Use GamePad for Comments/Video Info` | Enabled or Disabled, Enabled to start with |
+| `YouTube Patcher` | Enabled or Disabled, Enabled by default |
+| `App Version Experience` | one of the five versions below, 2013 (Standard) by default |
+| `Search Suggestions` | Enabled or Disabled, Enabled by default |
+| `Use GamePad for Comments/Video Info` | Enabled or Disabled, Enabled by default |
 
 The versions:
 
 - **Current (Official)** is whatever youtube.com serves the console itself. The patcher fixes
   the token and the User-Agent youtube.com turns the console away over, and leaves the rest
-  alone. What youtube.com serves is built for much newer browsers than the Wii U's, and I
-  haven't checked whether the console runs it.
+  alone. What youtube.com serves is built for much newer browsers than the Wii U's, but as of
+  this writing it does load for the most part, just slowly. It may stop working at some
+  point in the future.
 - **2012 (Launch)** is the app as it launched: the interface on the TV, and the GamePad given
   over to the video's details.
 - **2013 (Standard)** is the October 2013 app as it shipped.
