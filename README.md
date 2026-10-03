@@ -212,6 +212,12 @@ The first time YouTube starts, the patcher writes the revival host's root certif
 app's own certificates. Nothing gets written into the app itself. The Debug page says what the
 patcher did the last time YouTube started.
 
+If the Nintendo or Pretendo account servers are down, the Wii U Menu normally refuses to start
+YouTube at all, where it lets most other online software through after a warning. With the
+patcher on, YouTube gets the same warning and a Start button, so an account server outage
+doesn't lock you out of the app. The menu's launch check for YouTube is the only thing changed,
+and only for YouTube.
+
 With the patcher off, this plugin leaves YouTube completely alone.
 
 ## Building

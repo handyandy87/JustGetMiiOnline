@@ -26,7 +26,8 @@
 // Everything under youtube/ is WiiULeanback's source, byte for byte. Change it there and copy it
 // over, never here alone. This file is the rest of WiiULeanback, rewritten for this plugin: the
 // menu and storage behind youtube/settings.h, the certificate, what runs when the app starts and
-// ends, the name answer dns.cpp asks for, and the service token fix.
+// ends, the name answer dns.cpp asks for, the service token fix, and the Wii U Menu's launch
+// check.
 
 #include "youtube.h"
 #include "logger.h"
@@ -47,7 +48,9 @@
 #include <wups/storage.h>
 
 #include <content_redirection/redirection.h>
+#include <coreinit/memorymap.h>
 #include <coreinit/title.h>
+#include <nn/acp/title.h>
 #include <sys/stat.h>
 
 #include <array>
@@ -169,9 +172,12 @@ void comments_changed(ConfigItemBoolean *, bool value) {
     store(KEY_COMMENTS, value ? 1u : 0u);
 }
 
-bool is_youtube_title() {
-    const uint64_t id = OSGetTitleID();
+bool is_youtube(uint64_t id) {
     return id == YOUTUBE_TITLE_ID || id == YOUTUBE_BETA_TITLE_ID;
+}
+
+bool is_youtube_title() {
+    return is_youtube(OSGetTitleID());
 }
 
 // Writes the root to the card unless it's already there whole, and says whether it's in place.
@@ -448,3 +454,42 @@ DECL_FUNCTION(int, aist_youtube, uint8_t *token, const char *client_id) {
 WUPS_MUST_REPLACE_FOR_PROCESS(aist_youtube, WUPS_LOADER_LIBRARY_NN_ACT,
                               AcquireIndependentServiceToken__Q2_2nn3actFPcPCc,
                               WUPS_FP_TARGET_PROCESS_GAME_AND_MENU);
+
+// With the account servers unreachable, the Wii U Menu refuses to start YouTube at all: "This
+// software cannot be started, as online services are unavailable." Every other online title gets
+// the same 102-2932 error followed by "Do you still want to start the software?". Two things
+// separate them, both for titles whose metadata asks for an online account (online_account_use
+// 2, which YouTube and Netflix carry) rather than an optional one (1). The ACP launch check
+// answers -1007 for them, and the menu only tries the account and offers to start anyway for
+// titles that read as optional. So for YouTube's own title ids, in the Wii U Menu only, that exact
+// result becomes 0 and the launch metadata the menu reads right after it says 1. Every other
+// result and every other title is left as it came back, and the app itself still sees its
+// own metadata.
+constexpr int LAUNCH_ONLINE_ACCOUNT = -1007;
+
+// The by-list-ex check takes a pointer to the menu's title-list entry, which starts with the
+// title id. The rest of its arguments are handed on untouched.
+DECL_FUNCTION(int, ACPCheckTitleLaunchByTitleListTypeEx, uint32_t entry, uint32_t b, uint32_t c,
+              uint32_t d, uint32_t e, uint32_t f) {
+    const int result = real_ACPCheckTitleLaunchByTitleListTypeEx(entry, b, c, d, e, f);
+    if (patcher && result == LAUNCH_ONLINE_ACCOUNT && entry && OSIsAddressValid(entry) &&
+        OSIsAddressValid(entry + 7) && is_youtube(*reinterpret_cast<const uint64_t *>(entry))) {
+        return 0;
+    }
+    return result;
+}
+
+DECL_FUNCTION(ACPResult, ACPGetLaunchMetaXml, ACPMetaXml *meta) {
+    const ACPResult result = real_ACPGetLaunchMetaXml(meta);
+    if (patcher && result == ACP_RESULT_SUCCESS && meta && is_youtube(meta->title_id) &&
+        meta->online_account_use == 2) {
+        meta->online_account_use = 1;
+    }
+    return result;
+}
+
+WUPS_MUST_REPLACE_FOR_PROCESS(ACPCheckTitleLaunchByTitleListTypeEx, WUPS_LOADER_LIBRARY_NN_ACP,
+                              ACPCheckTitleLaunchByTitleListTypeEx,
+                              WUPS_FP_TARGET_PROCESS_WII_U_MENU);
+WUPS_MUST_REPLACE_FOR_PROCESS(ACPGetLaunchMetaXml, WUPS_LOADER_LIBRARY_NN_ACP,
+                              ACPGetLaunchMetaXml, WUPS_FP_TARGET_PROCESS_WII_U_MENU);
