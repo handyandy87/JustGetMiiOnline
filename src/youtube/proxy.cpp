@@ -29,6 +29,7 @@
 #include "trace.h"
 
 #include <atomic>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -62,6 +63,9 @@
 // its deadline is long and is there to break a wedge rather than to time anything.
 #define CLIENT_IDLE_SECONDS 30
 #define UPSTREAM_IDLE_SECONDS 120
+// Connecting to youtube, the handshake and sending the request each get this long to move. A
+// youtube that answers at all does all three in well under a second.
+#define UPSTREAM_SETUP_SECONDS CLIENT_IDLE_SECONDS
 
 // How long a stop waits for the workers to fall out of their reads before giving up on them.
 #define DRAIN_SECONDS 5
@@ -90,11 +94,23 @@
 // the relay below has to guess about it, so the chunk is a record.
 #define RELAY_CHUNK 16384
 
+// One line to the log and the trace, for each way a connection or a start can go wrong.
+#define PROXY_NOTE(FMT, ARGS...)                                \
+    do {                                                        \
+        DEBUG_FUNCTION_LINE("WiiULeanback: proxy " FMT, ##ARGS); \
+        trace_line("proxy " FMT, ##ARGS);                       \
+    } while (0)
+
 static std::atomic<bool> sRunning{false};
 static std::atomic<int> sListen{-1};
 static pthread_t sAccept;
 static bool sAccepting = false;
+
+// The context, and whether this run holds an NSSLInit that still needs its NSSLFinish. tls_up
+// is the only thing that sets them and tls_down the only thing that clears them, since NSSL is
+// shared and counts its users, and a finish without its init pulls it out from under the app.
 static NSSLContextHandle sTls = -1;
+static bool sNssl = false;
 
 // Whether the listener actually came up, which is not the same as whether it was asked for. The
 // name only gets answered locally when this is true, so a start that failed leaves the lookup
@@ -142,15 +158,34 @@ static void live_close(int slot) {
     sLive[slot].up = -1;
 }
 
+// Closes only the upstream socket, for an attempt that gets redone on a fresh one. The client
+// socket stays.
+static void live_drop_upstream(int slot) {
+    std::lock_guard<std::mutex> hold(sLiveLock);
+    if (sLive[slot].up >= 0) close(sLive[slot].up);
+    sLive[slot].up = -1;
+}
+
+// A table no claim has set up yet holds zeros, which read as descriptor 0, so it counts as
+// empty.
 static int live_count() {
     std::lock_guard<std::mutex> hold(sLiveLock);
+    if (!sLiveReady) return 0;
     int n = 0;
     for (int i = 0; i < MAX_CONNECTIONS; i++) { if (sLive[i].client >= 0) n++; }
     return n;
 }
 
+// Empties the table without closing anything, for slots whose workers and descriptors belonged
+// to a process that has ended.
+static void live_forget() {
+    std::lock_guard<std::mutex> hold(sLiveLock);
+    sLiveReady = false;
+}
+
 static void live_break_all() {
     std::lock_guard<std::mutex> hold(sLiveLock);
+    if (!sLiveReady) return;
     for (int i = 0; i < MAX_CONNECTIONS; i++) {
         if (sLive[i].up >= 0) shutdown(sLive[i].up, SHUT_RDWR);
         if (sLive[i].client >= 0) shutdown(sLive[i].client, SHUT_RDWR);
@@ -181,17 +216,29 @@ static bool upstream_address(struct sockaddr_in *out) {
 // FD_SETSIZE is 32 here and an fd_set is one word, so a descriptor at or above it would be set
 // past the end of a stack object. The whole process shares one descriptor table, so that number
 // is not this file's to predict.
+//
+// The wait goes a second at a time and gives up once the proxy is stopping, since a shutdown
+// isn't promised to wake a select on a connect that hasn't finished.
 static bool waitable(int fd, int seconds, bool forWriting) {
-    if (fd < 0 || fd >= FD_SETSIZE) return false;
-    fd_set set;
-    struct timeval wait;
-    FD_ZERO(&set);
-    FD_SET(fd, &set);
-    wait.tv_sec = seconds;
-    wait.tv_usec = 0;
-    fd_set *read = forWriting ? nullptr : &set;
-    fd_set *write = forWriting ? &set : nullptr;
-    return select(fd + 1, read, write, nullptr, &wait) > 0;
+    if (fd < 0) return false;
+    if (fd >= FD_SETSIZE) {
+        PROXY_NOTE("fd %d is past select's %d, connection dropped", fd, FD_SETSIZE);
+        return false;
+    }
+    for (int left = seconds; left > 0 && sRunning.load(); left--) {
+        fd_set set;
+        struct timeval wait;
+        FD_ZERO(&set);
+        FD_SET(fd, &set);
+        wait.tv_sec = 1;
+        wait.tv_usec = 0;
+        fd_set *read = forWriting ? nullptr : &set;
+        fd_set *write = forWriting ? &set : nullptr;
+        int n = select(fd + 1, read, write, nullptr, &wait);
+        if (n > 0) return true;
+        if (n < 0) return false;
+    }
+    return false;
 }
 
 static bool readable(int fd, int seconds) { return waitable(fd, seconds, false); }
@@ -209,12 +256,59 @@ static bool send_all(int fd, const char *data, int length) {
     return true;
 }
 
-static bool tls_write_all(NSSLConnectionHandle c, const char *data, int length) {
+// sock is the socket under c. While it is non-blocking, the first write also runs the handshake
+// and answers WANT_READ or WANT_WRITE when it would wait, so that wait happens here with a
+// deadline. A blocking socket never answers either. A code other than those two on the very
+// first write is NSSL refusing the mode rather than the network failing, and goes to refused
+// when the caller passes one.
+static bool tls_write_all(NSSLConnectionHandle c, int sock, const char *data, int length,
+                          int *refused = nullptr) {
     int sent = 0;
     while (sent < length) {
         int32_t n = 0;
-        if (NSSLWrite(c, data + sent, length - sent, &n) < 0 || n <= 0) return false;
+        NSSLError rc = NSSLWrite(c, data + sent, length - sent, &n);
+        if (rc == NSSL_ERROR_WANT_READ || rc == NSSL_ERROR_WANT_WRITE) {
+            if (waitable(sock, UPSTREAM_SETUP_SECONDS, rc == NSSL_ERROR_WANT_WRITE)) continue;
+            PROXY_NOTE("tls write to " UPSTREAM_HOST " did not move, %d sent", sent);
+            return false;
+        }
+        if (rc < 0 && sent == 0 && refused) {
+            *refused = (int) rc;
+            return false;
+        }
+        if (rc < 0 || n <= 0) {
+            PROXY_NOTE("tls write failed, %d, %d sent", (int) rc, sent);
+            return false;
+        }
         sent += n;
+    }
+    return true;
+}
+
+// The upstream socket stops blocking for connect, the handshake and the request, and blocks
+// again for the rest, which the relay expects.
+static bool set_blocking(int fd, bool blocking) {
+    int off = blocking ? 0 : 1;
+    return setsockopt(fd, SOL_SOCKET, SO_NONBLOCK, &off, sizeof(off)) == 0;
+}
+
+// A connect that doesn't finish inside the deadline is given up on rather than left to the
+// stack's own timeout, which runs to minutes. fd has to be non-blocking already.
+static bool connect_within(int fd, const struct sockaddr_in *addr, int seconds) {
+    if (connect(fd, (const struct sockaddr *) addr, sizeof(*addr)) == 0) return true;
+    if (errno != EINPROGRESS && errno != EALREADY && errno != EWOULDBLOCK) {
+        PROXY_NOTE("cannot connect to " UPSTREAM_HOST ", errno %d", errno);
+        return false;
+    }
+    if (!waitable(fd, seconds, true)) {
+        PROXY_NOTE("connect to " UPSTREAM_HOST " did not finish");
+        return false;
+    }
+    int err = 0;
+    socklen_t len = sizeof(err);
+    if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len) < 0 || err != 0) {
+        PROXY_NOTE("connect to " UPSTREAM_HOST " failed, %d", err);
+        return false;
     }
     return true;
 }
@@ -241,21 +335,25 @@ static int split_headers(char *buf, int end, int used, int *extra) {
 // Everything up to the blank line, which is where a request or an answer stops being headers.
 // Reads whatever has arrived, so body bytes can come in with the headers. Those sit just past
 // the NUL, *extra says how many, and the caller sends them on ahead of the rest of the body.
-// Answers the headers' length, 0 when the peer closed with nothing, or -1 on a failure. Filling
-// the buffer without reaching the blank line is a failure and not a short request: carrying that
-// on sends half a header block and treats the rest of the headers as a body.
+// Answers the headers' length, 0 when the peer closed with nothing, or one of the HEADERS_
+// failures. Filling the buffer without reaching the blank line is a failure and not a short
+// request: carrying that on sends half a header block and treats the rest of the headers as a
+// body.
+#define HEADERS_IDLE   -1
+#define HEADERS_BROKEN -2
+#define HEADERS_FULL   -3
 static int read_headers(int fd, char *buf, int max, int *extra) {
     int used = 0;
     *extra = 0;
     while (used < max - 1) {
-        if (!readable(fd, CLIENT_IDLE_SECONDS)) return -1;
+        if (!readable(fd, CLIENT_IDLE_SECONDS)) return HEADERS_IDLE;
         int n = recv(fd, buf + used, max - 1 - used, 0);
-        if (n <= 0) return used ? -1 : 0;
+        if (n <= 0) return used || n < 0 ? HEADERS_BROKEN : 0;
         int end = blank_line_end(buf, used, used + n);
         used += n;
         if (end) return split_headers(buf, end, used, extra);
     }
-    return -1;
+    return HEADERS_FULL;
 }
 
 // The same for the answer. A read that comes back short has emptied NSSL, so the socket is the
@@ -478,6 +576,56 @@ static bool needs_theme(const char *target, int length) {
     return true;
 }
 
+// Whether the upstream handshake runs on a non-blocking socket. Cleared for the rest of the
+// process the first time NSSL or the socket refuses that mode.
+static std::atomic<bool> sNonblockingTls{true};
+
+enum { OPEN_OK, OPEN_NETWORK, OPEN_REFUSED };
+
+// A socket to the upstream with its TLS connection. Non-blocking has the deadlines, blocking
+// has none. OPEN_REFUSED is the mode failing, OPEN_NETWORK is the network not answering. On
+// OPEN_OK both handles are set, and either way the socket is registered for the slot.
+static int upstream_open(int slot, const struct sockaddr_in *addr, bool nonblocking, int *up,
+                         NSSLConnectionHandle *tls, int *code) {
+    int s = socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) return OPEN_NETWORK;
+    *up = s;
+    live_upstream(slot, s);
+    if (nonblocking) {
+        if (!set_blocking(s, false)) {
+            *code = 0;
+            return OPEN_REFUSED;
+        }
+        if (!connect_within(s, addr, UPSTREAM_SETUP_SECONDS)) return OPEN_NETWORK;
+    } else if (connect(s, (const struct sockaddr *) addr, sizeof(*addr)) != 0) {
+        PROXY_NOTE("cannot connect to " UPSTREAM_HOST ", errno %d", errno);
+        return OPEN_NETWORK;
+    }
+    NSSLConnectionHandle c;
+    {
+        std::lock_guard<std::mutex> hold(sNsslLock);
+        c = NSSLCreateConnection(sTls, UPSTREAM_HOST, (int32_t) strlen(UPSTREAM_HOST), 0, s, 1);
+    }
+    if (c < 0) {
+        PROXY_NOTE("tls refused, %d", (int) c);
+        *code = (int) c;
+        return nonblocking ? OPEN_REFUSED : OPEN_NETWORK;
+    }
+    *tls = c;
+    return OPEN_OK;
+}
+
+// Drops an attempt: the TLS connection first, then the socket under it.
+static void upstream_drop(int slot, NSSLConnectionHandle *tls, int *up) {
+    if (*tls >= 0) {
+        std::lock_guard<std::mutex> hold(sNsslLock);
+        NSSLDestroyConnection(*tls);
+    }
+    *tls = -1;
+    live_drop_upstream(slot);
+    *up = -1;
+}
+
 static void serve(int slot) {
     int fd;
     {
@@ -494,7 +642,18 @@ static void serve(int slot) {
     int targetLength = 0;
 
     int got = read_headers(fd, request, HEADER_MAX, &extra);
-    if (got < 0) {
+    if (got == HEADERS_IDLE) {
+        PROXY_NOTE("request headers idle, 408");
+        answer_plain(fd, "408 Request Timeout", origin);
+        goto done;
+    }
+    // A peer that reset or closed half way through has nobody left to read an answer.
+    if (got == HEADERS_BROKEN) {
+        PROXY_NOTE("request closed part way through its headers");
+        goto done;
+    }
+    if (got == HEADERS_FULL) {
+        PROXY_NOTE("request headers past %d bytes, 431", HEADER_MAX);
         answer_plain(fd, "431 Request Header Fields Too Large", origin);
         goto done;
     }
@@ -524,24 +683,6 @@ static void serve(int slot) {
             answer_plain(fd, "502 Bad Gateway", origin);
             goto done;
         }
-        up = socket(AF_INET, SOCK_STREAM, 0);
-        if (up < 0) { answer_plain(fd, "502 Bad Gateway", origin); goto done; }
-        live_upstream(slot, up);
-        if (connect(up, (struct sockaddr *) &addr, sizeof(addr)) < 0) {
-            answer_plain(fd, "502 Bad Gateway", origin);
-            goto done;
-        }
-        {
-            std::lock_guard<std::mutex> hold(sNsslLock);
-            tls = NSSLCreateConnection(sTls, UPSTREAM_HOST, (int32_t) strlen(UPSTREAM_HOST),
-                                       0, up, 1);
-        }
-        if (tls < 0) {
-            DEBUG_FUNCTION_LINE("WiiULeanback: proxy tls refused, %d", (int) tls);
-            answer_plain(fd, "502 Bad Gateway", origin);
-            goto done;
-        }
-
         // The request goes on as it came, with the host rewritten to the one it is really for.
         // Connection: close so the answer ends at the socket closing, which is what the relay
         // below reads as the end of it.
@@ -590,7 +731,34 @@ static void serve(int slot) {
                 goto done;
             }
             used += tail;
-            if (!tls_write_all(tls, head, used)) {
+            // The fallback is the blocking handshake with no deadlines. Nothing has gone
+            // upstream when the first write is refused, so the head can be sent again.
+            bool nonblocking = sNonblockingTls.load();
+            for (;;) {
+                int code = 0;
+                int opened = upstream_open(slot, &addr, nonblocking, &up, &tls, &code);
+                if (opened == OPEN_OK) {
+                    int refused = 0;
+                    if (tls_write_all(tls, up, head, used, nonblocking ? &refused : nullptr)) break;
+                    if (!refused) {
+                        answer_plain(fd, "502 Bad Gateway", origin);
+                        goto done;
+                    }
+                    code = refused;
+                    opened = OPEN_REFUSED;
+                }
+                if (opened == OPEN_NETWORK || !nonblocking || !sRunning.load()) {
+                    answer_plain(fd, "502 Bad Gateway", origin);
+                    goto done;
+                }
+                if (sNonblockingTls.exchange(false)) {
+                    PROXY_NOTE("nonblocking handshake refused, %d, blocking from now on", code);
+                }
+                upstream_drop(slot, &tls, &up);
+                nonblocking = false;
+            }
+            if (nonblocking && !set_blocking(up, true)) {
+                PROXY_NOTE("cannot put the upstream socket back to blocking");
                 answer_plain(fd, "502 Bad Gateway", origin);
                 goto done;
             }
@@ -611,7 +779,7 @@ static void serve(int slot) {
         // What came in with the headers goes first. Anything past the length is not this
         // request's, and is left behind the way an unread byte would be.
         if (extra > want) extra = (int) want;
-        if (extra > 0 && !tls_write_all(tls, request + got + 1, extra)) {
+        if (extra > 0 && !tls_write_all(tls, up, request + got + 1, extra)) {
             answer_plain(fd, "502 Bad Gateway", origin);
             goto done;
         }
@@ -622,7 +790,7 @@ static void serve(int slot) {
             if (!readable(fd, CLIENT_IDLE_SECONDS)) goto done;
             int n = recv(fd, chunk, (int) take, 0);
             if (n <= 0) goto done;
-            if (!tls_write_all(tls, chunk, n)) {
+            if (!tls_write_all(tls, up, chunk, n)) {
                 answer_plain(fd, "502 Bad Gateway", origin);
                 goto done;
             }
@@ -749,26 +917,59 @@ static bool start_accepting() {
     return rc == 0;
 }
 
-bool proxy_start() {
-    if (NSSLInit() < 0) {
-        DEBUG_FUNCTION_LINE("WiiULeanback: no nssl, the proxy cannot reach youtube");
-        return false;
+// The one place the context and NSSL go down. Safe to call with nothing up, and a second call
+// finds nothing to do, so NSSLFinish runs at most once for each NSSLInit.
+static void tls_down() {
+    if (sTls >= 0) {
+        NSSLDestroyContext(sTls);
+        sTls = -1;
     }
-    sTls = NSSLCreateContext(0);
-    if (sTls < 0) {
-        DEBUG_FUNCTION_LINE("WiiULeanback: no tls context, %d", (int) sTls);
+    if (sNssl) {
         NSSLFinish();
+        sNssl = false;
+    }
+}
+
+// The one place they come up. sNssl goes up with the init, so a context that fails is undone by
+// tls_down like everything else.
+static bool tls_up() {
+    if (NSSLInit() < 0) {
+        PROXY_NOTE("has no nssl, cannot reach youtube");
         return false;
     }
+    sNssl = true;
+    NSSLContextHandle context = NSSLCreateContext(0);
+    if (context < 0) {
+        PROXY_NOTE("has no tls context, %d", (int) context);
+        tls_down();
+        return false;
+    }
+    sTls = context;
     // The root behind Google's chain today, through GlobalSign cross signing GTS Root R1. The
     // other two GlobalSign roots go on as well, since which one is offered is not ours to decide.
     NSSLAddServerPKI(sTls, NSSL_SERVER_CERT_GLOBALSIGN_ROOT_CA);
     NSSLAddServerPKI(sTls, NSSL_SERVER_CERT_GLOBALSIGN_ROOT_CA_R2);
     NSSLAddServerPKI(sTls, NSSL_SERVER_CERT_GLOBALSIGN_ROOT_CA_R3);
+    return true;
+}
+
+bool proxy_start() {
+    // Only an application's start gets here, so anything a stop had to leave behind belongs to
+    // the process that ended: its workers, its NSSL and its context went with it. Destroying or
+    // finishing those from this process would land on this app's own NSSL, so they're forgotten,
+    // and so are the slots the stuck workers held.
+    if (sNssl || sTls >= 0 || live_count() > 0) {
+        PROXY_NOTE("dropping what the last run left, context %d, %d connections", (int) sTls,
+                   live_count());
+        sTls = -1;
+        sNssl = false;
+        live_forget();
+    }
+    if (!tls_up()) return false;
 
     int listener = socket(AF_INET, SOCK_STREAM, 0);
     if (listener < 0) {
-        DEBUG_FUNCTION_LINE("WiiULeanback: the proxy has no socket");
+        PROXY_NOTE("has no socket");
         goto fail;
     }
     {
@@ -781,12 +982,13 @@ bool proxy_start() {
         // every interface would make this a forward proxy for anything else on the network.
         here.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
         if (bind(listener, (struct sockaddr *) &here, sizeof(here)) < 0) {
-            DEBUG_FUNCTION_LINE("WiiULeanback: the proxy cannot take port %d", PROXY_PORT);
+            PROXY_NOTE("cannot take port %d", PROXY_PORT);
             close(listener);
             goto fail;
         }
     }
     if (listen(listener, MAX_CONNECTIONS) < 0) {
+        PROXY_NOTE("cannot listen on port %d", PROXY_PORT);
         close(listener);
         goto fail;
     }
@@ -794,7 +996,7 @@ bool proxy_start() {
     sRunning = true;
     sUp = true;
     if (!start_accepting()) {
-        DEBUG_FUNCTION_LINE("WiiULeanback: the proxy has no thread to accept on");
+        PROXY_NOTE("has no thread to accept on");
         sRunning = false;
         sUp = false;
         sListen = -1;
@@ -806,9 +1008,7 @@ bool proxy_start() {
     return true;
 
 fail:
-    NSSLDestroyContext(sTls);
-    sTls = -1;
-    NSSLFinish();
+    tls_down();
     return false;
 }
 
@@ -850,14 +1050,9 @@ void proxy_stop() {
     }
     if (live_count() > 0) {
         // Freeing what they are still inside would be worse than keeping it. The context stays,
-        // and so does nssl.
-        DEBUG_FUNCTION_LINE("WiiULeanback: %d proxy connections did not end, leaving tls up",
-                            live_count());
+        // and so does nssl, and the next start drops the record of both.
+        PROXY_NOTE("left %d connections that did not end, tls stays up", live_count());
         return;
     }
-    if (sTls >= 0) {
-        NSSLDestroyContext(sTls);
-        sTls = -1;
-    }
-    NSSLFinish();
+    tls_down();
 }
