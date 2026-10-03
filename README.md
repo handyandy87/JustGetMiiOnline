@@ -4,6 +4,8 @@ An Aroma plugin that picks which account server your Wii U signs in against, whi
 Miiverse it talks to, and which network serves SpotPass. Protarium's own Inkay stays
 installed and in charge of everything else. I move those three things and nothing else.
 
+It also gets the Wii U YouTube app working again, with the YouTube Patcher.
+
 **This only works with Protarium's version of Inkay, and you want their latest build:
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).**
 
@@ -15,17 +17,26 @@ What you get out of it:
   Roseverse.
 - A toast at every boot naming the account server and Miiverse in use, so you always know
   what you're on without opening anything.
+- The YouTube app back, as the 2012, 2013 or 2016 version of itself, with search
+  suggestions and comments on the GamePad.
 
 ## Installing
 
 **You need Protarium's build of Inkay**, from
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).
-This plugin rides on top of theirs and does nothing without it.
+The three network settings ride on top of theirs and do nothing without it. The YouTube
+Patcher doesn't need it.
 
 Download `JustGetMiiOnline.wps` from this repository's
 [Releases](https://github.com/handyandy87/JustGetMiiOnline/releases) page, then copy it to
 `sd:/wiiu/environments/aroma/plugins/`, alongside Protarium's own Inkay plugin and module.
 All three coexist.
+
+The YouTube Patcher also needs `ContentRedirectionModule.wms` in
+`sd:/wiiu/environments/aroma/modules/`. It ships with Aroma, so it's most likely there
+already. If you've got another YouTube plugin installed, like GiveMiiYouTube or
+WiiULeanback, take it out, or turn the YouTube Patcher off, so only one of them patches the
+app.
 
 ### Extra setup for Roseverse
 
@@ -78,7 +89,8 @@ on your controller or GamePad, then pick **JustGetMiiOnline** from the list.
 
 Back out of the menu when you're done. If you changed any of the three settings, or ran the
 WaraWara Plaza reset, the console relaunches at that point, which is what makes the change
-take.
+take. The YouTube Patcher's settings don't relaunch anything. They take effect the next time
+you start YouTube.
 
 ## The settings
 
@@ -88,9 +100,11 @@ take.
 | Miiverse, `Miiverse Service` | Protaverse, Juxt or Roseverse |
 | SpotPass, `SpotPass Server` | the account server's own, or Roseverse's (only on Roseverse) |
 
-**On the defaults it writes nothing at all.** Not Protarium's own values written back,
-nothing: every path checks the setting before it touches memory. Installing this and
-leaving it alone should be indistinguishable from not installing it.
+**Outside the YouTube app, on the defaults it writes nothing at all.** Not Protarium's own
+values written back, nothing: every path checks the setting before it touches memory. The
+YouTube Patcher is the one thing on by default, and it never touches anything but the YouTube
+app. Turn it off and installing this and leaving it alone should be indistinguishable from
+not installing it.
 
 Change any of the three, or run the WaraWara Plaza reset, and the console relaunches when you
 back out of the menu, which is what keeps a change whole. Back out having changed nothing and
@@ -141,13 +155,62 @@ the Debug page. One server per console, so having either is not having the other
 Protarium's carries Splatfests, Conquest and 100 Mario, Rose's carries the WaraWara Plaza of
 the Miiverse in use.
 
+## YouTube Patcher
+
+The Wii U YouTube app stopped working in 2022. Nintendo's servers stopped handing it the
+token it asks for at startup, and youtube.com stopped serving anything it can run. The
+patcher reports that token as issued and points the app at a revival host that serves the
+old TV apps, while the video itself still comes straight from Google. You don't change any
+DNS settings.
+
+It has a page of its own in the menu, **YouTube Patcher**:
+
+| Setting | Choices |
+|---|---|
+| `YouTube Patcher` | Enabled or Disabled, Enabled to start with |
+| `App Version Experience` | one of the five versions below, 2013 (Standard) to start with |
+| `Search Suggestions` | Enabled or Disabled, Enabled to start with |
+| `Use GamePad for Comments/Video Info` | Enabled or Disabled, Enabled to start with |
+
+The versions:
+
+- **Current (Official)** is whatever youtube.com serves the console itself. The patcher fixes
+  the token and the User-Agent youtube.com turns the console away over, and leaves the rest
+  alone. What youtube.com serves is built for much newer browsers than the Wii U's, and I
+  haven't checked whether the console runs it.
+- **2012 (Launch)** is the app as it launched: the interface on the TV, and the GamePad given
+  over to the video's details.
+- **2013 (Standard)** is the October 2013 app as it shipped.
+- **2013 (Mirrored Screen)** is the same app with the interface on both screens, and the
+  keyboard kept to the GamePad.
+- **2016 (Standard)** is the March 2016 app, the last one youtube.com still serves, with its
+  own look. It plays live streams and brings its own search suggestions.
+
+Search Suggestions only changes the three 2013 versions. Comments/Video Info puts a video's
+comments on the GamePad in every version but Current (Official), and in 2013 and 2016 an (i)
+beside them for the video's details. Signed in, you can post comments and replies from the
+GamePad keyboard.
+
+The first time YouTube starts, the patcher writes the revival host's root certificate to
+`sd:/wiiu/environments/aroma/plugins/config/JustGetMiiOnline/youtube/` and adds it beside the
+app's own certificates. Nothing gets written into the app itself. The Debug page says what the
+patcher did the last time YouTube started.
+
+If the Nintendo or Pretendo account servers are down, the Wii U Menu normally refuses to start
+YouTube at all, where it lets most other online software through after a warning. With the
+patcher on, YouTube gets the same warning and a Start button, so an account server outage
+doesn't lock you out of the app. The menu's launch check for YouTube is the only thing changed,
+and only for YouTube.
+
+With the patcher off, this plugin leaves YouTube completely alone.
+
 ## Building
 
-devkitPPC and wut, plus five libraries devkitPro doesn't package: the plugin system,
-libmocha, libkernel, libfunctionpatcher and libnotifications. The toolchain and the
-`ppc-zlib` portlib come from devkitPro's package manager; build those five from source and
-`make install` each one. Build libkernel with a plain `make`: its generated linker script
-races under parallel make and the build fails on a missing file.
+devkitPPC and wut, plus six libraries devkitPro doesn't package: the plugin system,
+libmocha, libkernel, libfunctionpatcher, libnotifications and libcontentredirection. The
+toolchain and the `ppc-zlib` portlib come from devkitPro's package manager; build those six
+from source and `make install` each one. Build libkernel with a plain `make`: its generated
+linker script races under parallel make and the build fails on a missing file.
 
 ```bash
 make
@@ -159,9 +222,9 @@ they run emulated and a native toolchain is a lot faster.
 ## Disclaimer
 
 This is provided as is, with no warranty of any kind. It changes which servers your console
-signs in against, which is not something the Wii U was ever built to have changed underneath
-it. It works on my hardware. I can't promise anything about yours, and what you do with it
-is your own risk.
+signs in against, and patches the YouTube app in memory, which is not something the Wii U was
+ever built to have changed underneath it. It works on my hardware. I can't promise anything
+about yours, and what you do with it is your own risk.
 
 ## Built with AI assistance
 
@@ -177,6 +240,11 @@ install anything.
 
 GPL-3.0. This builds on work from other projects in the scene, Inkay and RosePatcher among
 them. The game constants in it are numbers I measured off software that's already out there.
+
+The YouTube Patcher is my WiiULeanback plugin's code. Its service token fix comes from
+[GiveMiiYouTube](https://github.com/PretendoNetwork/GiveMiiYouTube) by GaryOderNichts and the
+[GiveMiiYouTubeUniversal](https://github.com/Protarium-Network/GiveMiiYouTubeUniversal) fork,
+both MIT.
 
 Roseverse's addresses and URLs come from upstream Inkay's own table, where both Protarium's
 fork and Project Rose's inherited them, and Rose's hostnames are read out of

@@ -18,6 +18,9 @@
 // of everything else: which account server signs the console's tokens, which
 // Miiverse it talks to, and which network serves SpotPass.
 //
+// Beside them, and unrelated to them, the YouTube Patcher gets the Wii U YouTube app
+// starting again. youtube.cpp has it.
+//
 // The Miiverse swap happens in the gap the loader leaves between their module's write
 // and the title's own entry point, keyed on what their module leaves behind, so their
 // release cadence costs this plugin nothing. olv.h sets that out.
@@ -62,19 +65,21 @@
 // pairing's default. Protarium's stays the default wherever Protarium is the account
 // server, because choosing a Miiverse isn't choosing to give up Splatfests.
 //
-// The defaults cost nothing, because on them this plugin writes nothing. Every body
-// here starts by checking the setting, so an absent, unreadable or unrecognized
-// stored value all end up in the same place: doing nothing.
+// These three cost nothing on their defaults, because on them this plugin writes
+// nothing. Every body here starts by checking the setting, so an absent, unreadable
+// or unrecognized stored value all end up in the same place: doing nothing. The
+// YouTube Patcher is the one thing on by default, and it never touches anything but
+// the YouTube app.
 //
 // Memory search and replace is how two patchers end up destroying each other, so
-// the rule in this project is: don't. This is the one place that breaks the rule,
-// and the only place allowed to. There's no way to move Miiverse without it: the
-// address isn't fixed and nobody exports it. So this is an exception, and it's
-// narrowed by two promises rather than by luck. It never searches for Nintendo's
-// string, which is the key their module consumes, only for what their module leaves
-// behind, which nothing else wants. And every write is exactly as long as what it
-// matched. Both are checkable by reading olv.cpp, and both have to survive any later
-// change to it.
+// the rule in this project is: don't. The Miiverse swap is one of the two places that
+// break the rule, and the only two allowed to. There's no way to move Miiverse
+// without it: the address isn't fixed and nobody exports it. So this is an exception,
+// and it's narrowed by two promises rather than by luck. It never searches for
+// Nintendo's string, which is the key their module consumes, only for what their
+// module leaves behind, which nothing else wants. And every write is exactly as long
+// as what it matched. Both are checkable by reading olv.cpp, and both have to survive
+// any later change to it.
 //
 // The first of those promises was broken once, deliberately, and put back. Taking
 // Nintendo's string got ahead of the library reading the URL, and it cost their
@@ -82,6 +87,12 @@
 // measured as five second transitions becoming forty. What gets ahead without
 // taking anything is the gap the loader leaves before the title's entry point, and
 // that's where the swap happens now, with no module needed. olv.h has the detail.
+//
+// The YouTube Patcher is the other place. It finds each of its sites at a known
+// address or by signature inside the YouTube app's own image and nowhere else, only
+// in a run it started, and every write is exactly as long as what it matched.
+// Nothing else patches that app unless another YouTube plugin sits beside this one,
+// which the README says not to do.
 
 // The sign-in token used to be the one part of Roseverse this plugin didn't
 // supply. It supplies it now, and what made that possible was finding a way to do
@@ -123,12 +134,14 @@
 #include "olv.h"
 #include "spotpass.h"
 #include "token.h"
+#include "youtube.h"
 
 #include <wups.h>
 
 WUPS_PLUGIN_NAME("JustGetMiiOnline");
-WUPS_PLUGIN_DESCRIPTION("Account server, Miiverse and SpotPass selection for Protarium");
-WUPS_PLUGIN_VERSION("v1.0.1");
+WUPS_PLUGIN_DESCRIPTION("Account server, Miiverse and SpotPass selection for Protarium, and a "
+                        "YouTube patcher");
+WUPS_PLUGIN_VERSION("v1.0.2");
 WUPS_PLUGIN_AUTHOR("HandyAndy87");
 WUPS_PLUGIN_LICENSE("GPLv3");
 
@@ -137,7 +150,8 @@ WUPS_USE_STORAGE("justgetmiionline");
 // Without this there's no filesystem device registered for this plugin at all,
 // only the socket one, and every fopen fails before it has even looked at the
 // path. It's what the Roseverse import needs to read the user's copy of Rose's
-// module.
+// module, and what the YouTube Patcher writes the revival host's root to the card
+// with.
 //
 // It showed up after the first hardware attempt reported a missing file that was
 // sitting on the card, which is the failure this produces: the open fails
@@ -223,6 +237,10 @@ ON_APPLICATION_START() {
     // here, and Config::Init has already forced it back to this pairing's default
     // if what was stored isn't something this pairing allows.
     spotpass_apply(Config::spotpass);
+
+    // Last, and only in the YouTube app. Its patches have to go in before the app draws
+    // anything, and none of its own code has run yet.
+    youtube_start();
 }
 
 ON_ACQUIRED_FOREGROUND() {
@@ -235,4 +253,7 @@ ON_ACQUIRED_FOREGROUND() {
 }
 
 ON_APPLICATION_ENDS() {
+    // Stops the YouTube proxy and takes the certificate layer down, when the run ending is
+    // one the patcher started.
+    youtube_end();
 }
