@@ -15,6 +15,8 @@
 */
 
 #include "dns.h"
+#include "youtube.h"
+#include "youtube/proxy.h"
 
 #include <wups.h>
 
@@ -55,8 +57,8 @@ namespace {
 //
 // The risk runs the other way now: a new infrastructure host of theirs gets refused
 // until it's listed. That's visible rather than silent, because every refusal shows
-// up in the recent lookups in the config menu with a cross beside it, and this whole
-// file does nothing at all unless the account server is Pretendo.
+// up in the recent lookups in the config menu with a cross beside it, and nothing is
+// refused at all unless the account server is Pretendo.
 constexpr const char *PROTARIUM_DOMAIN = "protarium.lol";
 
 // The four left resolving: Protaverse's three hosts and their account server.
@@ -413,11 +415,21 @@ DECL_FUNCTION(struct hostent *, gethostbyname, const char *name) {
     return real_gethostbyname(name);
 }
 
+// The YouTube Patcher answers two names here too, which youtube_answer hands back as what to
+// resolve instead. Every other name comes back as it was asked.
 DECL_FUNCTION(int, getaddrinfo, const char *node, const char *service,
               const struct addrinfo *hints, struct addrinfo **res) {
     if (refuse(node)) {
         return EAI_NONAME;
     }
+    return real_getaddrinfo(youtube_answer(node), service, hints, res);
+}
+
+// The YouTube proxy's own lookups, which must not come back through the answer above. Asking for
+// www.youtube.com through it would get the revival host, and the proxy would forward to it in a
+// circle.
+int proxy_resolve(const char *node, const char *service, const struct addrinfo *hints,
+                  struct addrinfo **res) {
     return real_getaddrinfo(node, service, hints, res);
 }
 

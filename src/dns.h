@@ -45,6 +45,9 @@
 //
 // The hooks install themselves through declarations in dns.cpp, so there's no
 // setup call beyond handing over the setting.
+//
+// The getaddrinfo hook also carries the YouTube Patcher's two answers, since one
+// plugin can only replace a function once. youtube.h has them.
 
 #include "choice.h"
 
