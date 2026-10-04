@@ -73,12 +73,13 @@ constexpr const char *PROTARIUM_DOMAIN = "protarium.lol";
 // The portal is the one nothing has measured being asked for here. These hooks don't
 // run in the Miiverse applet, which is what opens it, so it only matters to a game or
 // the Wii U Menu that asks, and it's kept so that one wouldn't be refused.
-// api.protarium.lol is also their SpotPass tasksheet host, which is not an answer a
-// Pretendo account is offered.
+// api.protarium.lol is also the tasksheet host in their older module. Their newer one
+// moved SpotPass to npts.app.protarium.lol and nppl.app.protarium.lol, and neither is
+// kept, because Protarium's SpotPass is not an answer a Pretendo account is offered.
 //
 // The account server is kept because it's the subject of a write rather than of a
 // refusal, which was once the whole reason for all of these. The account URL, and on
-// the other pairings the Miiverse slot and the SpotPass tasksheets, are decided by
+// the other pairings the Miiverse slot and the SpotPass addresses, are decided by
 // moving a string somewhere else, so a name hook that refuses those names is a second,
 // blunter enforcement of decisions those writes already made. Blunter matters:
 // account.cpp alone reports four ways its write can fail, and in each of them the
