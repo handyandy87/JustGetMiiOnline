@@ -7,8 +7,10 @@ installed and in charge of everything else. I move those three things and nothin
 It also gets the Wii U YouTube app working again with the YouTube Patcher, allowing you to
 choose from the 2012, 2013, 2016 and current official versions.
 
-**This only works with Protarium's version of Inkay, and you want their latest build:
-[Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).**
+**You need Protarium's version of Inkay for full plugin functionality, and you want their
+latest build:
+[Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).
+You do not need their plugin if you only want the YouTube patcher functionality.**
 
 What you get out of it:
 
@@ -23,10 +25,10 @@ What you get out of it:
 
 ## Installing
 
-**You need Protarium's build of Inkay**, from
+**You need Protarium's build of Inkay for full plugin functionality. You do not need their
+plugin if you only want the YouTube patcher functionality.** Get it from
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).
-The three network settings ride on top of theirs and do nothing without it. The YouTube
-Patcher doesn't need it.
+The three network settings ride on top of theirs and do nothing without it.
 
 Download `JustGetMiiOnline.wps` from this repository's
 [Releases](https://github.com/handyandy87/JustGetMiiOnline/releases) page, then copy it to
