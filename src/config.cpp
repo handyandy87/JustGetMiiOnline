@@ -557,9 +557,9 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
     // says so.
     spotpass_observe();
 
-    // Which of Protarium's modules the long slot shows, which is what the four lines
-    // below were judged against. "older" has the tasksheets on api.protarium.lol and the
-    // policy pair on Pretendo, "newer" has all four on Protarium's own hosts.
+    // Which of Protarium's modules the long slot shows to the read just above. "older"
+    // has the tasksheets on api.protarium.lol and the policy pair on Pretendo, "newer"
+    // has all four on Protarium's own hosts.
     std::snprintf(line, sizeof(line), "SpotPass layout: %s", spotpass_layout_name());
     if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
@@ -577,11 +577,11 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
     }
 
-    // The policy pair, shown only where it can move. On Protarium's SpotPass these two
-    // would read "left alone" on every boot forever, which is two lines of menu saying
-    // nothing. Pretendo and Roseverse both move them, Pretendo only on Protarium's newer
-    // module, and they have never been read on a console, so this is where they're worth
-    // the space.
+    // The policy pair, shown only where it can move. Everywhere else these two would
+    // read "left alone" on every boot forever, which is two lines of menu saying nothing.
+    // Roseverse moves them on either of Protarium's modules and Pretendo only on the
+    // newer one, so Pretendo shows them once that module is proved. They have never been
+    // read on a console, so this is where they're worth the space.
     if (spotpass_moves_policy(Config::spotpass)) {
         std::snprintf(line, sizeof(line), "SpotPass %s, now %s", spotpass_policy_status(),
                       spotpass_policy_seen());
