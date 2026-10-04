@@ -39,8 +39,8 @@ namespace {
 // so the honest answer to the lookup is that the name doesn't resolve, which is
 // what the console would be told if nobody had patched anything. It's also the
 // fast answer: this runs on the thread the game is waiting on, and resolving a
-// long-dead Nintendo, Activision, Ubisoft, Bandai Namco or Electronic Arts name
-// would burn the resolver's whole timeout to arrive at the same place.
+// long-dead Nintendo, Activision, Ubisoft or Bandai Namco name would burn the
+// resolver's whole timeout to arrive at the same place.
 
 // What Protarium's build produces, for the case where their hook ran first and
 // this one is looking at their output.
