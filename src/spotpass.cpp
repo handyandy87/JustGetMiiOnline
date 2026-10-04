@@ -412,8 +412,7 @@ bool move_slot(const IosuHandle &iosu, const Slot &slot, const Incumbent &incumb
     }
 
     // Asked first, so a second application start does no work and the menu still
-    // reads as done rather than as refused. On the older module this is also all
-    // Pretendo ever does to the policy pair: it already holds Pretendo's own strings.
+    // reads as done rather than as refused.
     if (std::memcmp(now, replacement, length) == 0) {
         std::snprintf(slot.status, slot.status_size, "%s: %s", slot.label,
                       destination_name(destination));
@@ -476,10 +475,10 @@ const Slot SLOTS[] = {
      sizeof(ROSEVERSE_SHORT_URL), false, short_status, sizeof(short_status),
      TASKSHEET_HOST_PRETENDO, TASKSHEET_HOST_ROSEVERSE, short_seen, sizeof(short_seen)},
     // On the older module the incumbent here is Pretendo's own string, the same one
-    // Pretendo would write, so Pretendo finds it already in place and writes nothing,
-    // exactly as it did when this pair had no Pretendo string at all. There's no
-    // stranded tail on either module and no room argument to make, just an exact match
-    // of the whole incumbent.
+    // Pretendo would write, so concerns() below keeps Pretendo away from this pair there
+    // exactly as when it had no Pretendo string at all. There's no stranded tail on
+    // either module and no room argument to make, just an exact match of the whole
+    // incumbent.
     {BOSS_POLICY_LIST_ADDRESS, "policy",
      {PRETENDO_POLICY_LIST, sizeof(PRETENDO_POLICY_LIST), sizeof(PRETENDO_POLICY_LIST),
       POLICY_HOST_PRETENDO},
@@ -502,12 +501,47 @@ const Slot SLOTS[] = {
 // The slot that says which module this is.
 const Slot &LONG_SLOT = SLOTS[0];
 
-// Every slot's status at once, for the outcomes that apply to all four.
-void report_all(const char *what) {
+// Whether this destination has anything to move or report at this slot.
+//
+// Pretendo and the policy pair are the one pairing where that depends on the module. On
+// the older one the pair already holds Pretendo's strings, so there's nothing to move,
+// and the pair stays "left alone" and off the menu the way it always has there. Only
+// once the long slot has proved the newer module does Pretendo have any business with
+// it. Until then the module is unknown, so it's treated the same way.
+bool concerns(const Slot &slot, Destination destination) {
+    return !(slot.policy && destination == Destination::Pretendo && layout != Layout::Npts);
+}
+
+void report(const Slot &slot, const char *what) {
+    std::snprintf(slot.status, slot.status_size, "%s: %s", slot.label, what);
+    if (slot.policy) {
+        policy_reported = true;
+    }
+}
+
+// Every slot this destination concerns, for the outcomes that apply to all of them.
+void report_all(const char *what, Destination destination) {
     for (const Slot &slot : SLOTS) {
-        std::snprintf(slot.status, slot.status_size, "%s: %s", slot.label, what);
-        if (slot.policy) {
-            policy_reported = true;
+        if (concerns(slot, destination)) {
+            report(slot, what);
+        }
+    }
+}
+
+// What the slots hold when the long slot proves no module, reported and never written.
+//
+// A plugin reloaded mid-session starts over with this boot's records gone, while its
+// own earlier writes are still in the slots. Those slots say they're on the destination,
+// as they did before any module had to be proved, and the rest keep "no layout".
+void report_already_moved(const IosuHandle &iosu, Destination destination) {
+    for (const Slot &slot : SLOTS) {
+        size_t length = 0;
+        const char *replacement = wanted(slot, destination, length);
+        unsigned char now[WIDEST_SLOT] = {};
+        if (concerns(slot, destination) && replacement != nullptr && length <= sizeof(now) &&
+            iosu.read_bytes(slot.address, now, length) &&
+            std::memcmp(now, replacement, length) == 0) {
+            report(slot, destination_name(destination));
         }
     }
 }
@@ -519,15 +553,15 @@ void report_all(const char *what) {
 // other build leaves the same 66 bytes this plugin's Pretendo write over the older
 // module does, because the byte after it is Nintendo's terminator either way.
 //
-// When it proves neither, nothing is written anywhere and all four say so. The long
-// slot keeps the one distinction worth keeping: the older module's string with an
-// unexpected tail is the room argument failing, reported as bytes the way move_slot
-// reports it.
-Layout recognize(const IosuHandle &iosu) {
+// When it proves neither, nothing is written anywhere and every slot it concerns says
+// so. The long slot keeps the one distinction worth keeping: the older module's string
+// with an unexpected tail is the room argument failing, reported as bytes the way
+// move_slot reports it.
+Layout recognize(const IosuHandle &iosu, Destination destination) {
     unsigned char bytes[WIDEST_SLOT] = {};
     const size_t width = widest(LONG_SLOT);
     if (width > sizeof(bytes) || !iosu.read_bytes(LONG_SLOT.address, bytes, width)) {
-        report_all("not read yet");
+        report_all("not read yet", destination);
         return Layout::NotRead;
     }
 
@@ -537,7 +571,7 @@ Layout recognize(const IosuHandle &iosu) {
         return found;
     }
 
-    report_all("no layout");
+    report_all("no layout", destination);
     for (const Incumbent *incumbent : {&LONG_SLOT.api, &LONG_SLOT.npts}) {
         if (incumbent->length < incumbent->slot_width &&
             std::memcmp(bytes, incumbent->bytes, incumbent->length) == 0) {
@@ -697,7 +731,9 @@ void spotpass_apply(SpotPass chosen) {
     // already asks for is what applies the new setting. Their module restores its own
     // values at boot, and this starts again from a state it can prove.
     if (have_applied && applied != destination) {
-        report_all("reboot to move");
+        for (const Slot &slot : SLOTS) {
+            report(slot, "reboot to move");
+        }
         LOG("SpotPass destination changed mid-session, leaving all four until a reboot");
         return;
     }
@@ -716,7 +752,10 @@ void spotpass_apply(SpotPass chosen) {
     // Once per boot. A read that failed or proved neither module gets another turn at
     // the next application start, since nothing was written on either.
     if (layout != Layout::Api && layout != Layout::Npts) {
-        layout = recognize(iosu);
+        layout = recognize(iosu, destination);
+        if (layout == Layout::NotRecognized) {
+            report_already_moved(iosu, destination);
+        }
         if (layout != Layout::Api && layout != Layout::Npts) {
             return;
         }
@@ -724,12 +763,14 @@ void spotpass_apply(SpotPass chosen) {
 
     bool moved = false;
     for (const Slot &slot : SLOTS) {
-        // Each slot stands on its own guard, so one that fails validation is skipped
-        // rather than taking the others down with it. Part of a move is worth having:
-        // the tasksheets are the same URL in two shapes and the console picks by which
-        // shape a request needs, so a slot that moved serves the new network whatever
-        // the others do.
-        moved = move_slot(iosu, slot, incumbent_for(slot, layout), destination) || moved;
+        // Once the long slot has proved a module, each slot stands on its own guard, so
+        // one that fails validation is skipped rather than taking the others down with
+        // it. Part of a move is worth having: the tasksheets are the same URL in two
+        // shapes and the console picks by which shape a request needs, so a slot that
+        // moved serves the new network whatever the others do.
+        if (concerns(slot, destination)) {
+            moved = move_slot(iosu, slot, incumbent_for(slot, layout), destination) || moved;
+        }
     }
 
     if (moved) {
@@ -750,7 +791,11 @@ bool spotpass_moves_policy(SpotPass chosen) {
     // console that moved the pair and then had the Miiverse changed under it would
     // otherwise hide the two lines at exactly the moment they stop agreeing with the
     // setting, which is when they're most worth reading.
-    return destination_for(chosen) != Destination::LeaveAlone || policy_reported;
+    //
+    // Pretendo shows them that way only, because it only reports on them once the long
+    // slot has proved the newer module. On the older one they stay hidden as they always
+    // have, since Pretendo has nothing to move there.
+    return destination_for(chosen) == Destination::Roseverse || policy_reported;
 }
 
 const char *spotpass_policy_status() {
