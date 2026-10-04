@@ -53,8 +53,8 @@
 // judged against that one. When it shows neither, nothing is written.
 //
 // On the older module Pretendo writes two. The policy list and the policy host already
-// hold what I'd write before anything here runs, and the check that comes before any
-// write finds it there and leaves it. On the newer one Pretendo writes all four, the way
+// hold what I'd write before anything here runs, so Pretendo leaves them alone there and
+// says nothing about them. On the newer one Pretendo writes all four, the way
 // Roseverse does on both: leaving the policy pair on one network while taking
 // tasksheets from another is precisely the "one network for work the other issued"
 // condition this file objects to.
@@ -106,7 +106,8 @@ const char *spotpass_policy_host_seen();
 // the slot is wide enough for Pretendo's longer URL. If that's wrong the write is
 // refused rather than attempted, and these report the bytes actually found, so the
 // console itself says what's there. "no layout" means the long slot showed neither
-// module, so none of the four was judged or written.
+// module, so nothing was written. A slot that already held the destination's string
+// then still names the destination, the way it does after a plugin reload.
 const char *spotpass_long_status();
 const char *spotpass_short_status();
 
@@ -119,8 +120,8 @@ const char *spotpass_short_status();
 // module's and it's the one this boot proved before writing.
 const char *spotpass_layout_name();
 
-// The BOSS policy pair, which every destination but Protarium moves, though on the older
-// module Pretendo finds it already in place. Reported separately from the
+// The BOSS policy pair, which Roseverse moves on either module and Pretendo only on the
+// newer one. Reported separately from the
 // tasksheets and from each other for the same reason the tasksheets are split up: each
 // stands on its own guard, so one refusing is a different fault from all four refusing
 // and a single line would hide it.
@@ -133,6 +134,8 @@ const char *spotpass_policy_host_status();
 
 // Whether this combination moves the policy pair at all, so the menu can drop the two
 // lines entirely instead of printing "left alone" twice on every console that will
-// never move them, which is every console on Protarium's SpotPass. The destination rule
-// stays in spotpass.cpp; this is the one question the menu needs to ask about it.
+// never move them: every console on Protarium's SpotPass, and Pretendo's on the older
+// module. Pretendo's lines show once it has reported on the pair, which it does only
+// after the newer module is proved. The destination rule stays in spotpass.cpp; this is
+// the one question the menu needs to ask about it.
 bool spotpass_moves_policy(SpotPass chosen);
