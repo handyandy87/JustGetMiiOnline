@@ -35,10 +35,10 @@
 // tomorrow is covered the day they ship it.
 //
 // Four names are kept: their account server, and Protaverse's discovery host, API
-// host and portal, the API host being their SpotPass host as well. Protaverse's are
-// kept because it's offered on Pretendo, with its token request routed to their
-// account server, so a setting here selects them. The account server is kept because
-// it's the subject of a write rather than of a refusal: that decision is made by
+// host and portal, the API host being their older module's SpotPass host as well.
+// Protaverse's are kept because it's offered on Pretendo, with its token request routed
+// to their account server, so a setting here selects them. The account server is kept
+// because it's the subject of a write rather than of a refusal: that decision is made by
 // moving a string, this file would only be enforcing it a second time and more
 // bluntly, and anything later that rewrites where a lookup goes needs the name to
 // arrive here in the first place.
