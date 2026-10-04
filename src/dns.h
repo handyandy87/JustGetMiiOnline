@@ -18,12 +18,12 @@
 
 // Turn off Protarium's game redirects when the account server is Pretendo.
 //
-// Their build sends five games to their own hosts by name: Wii Karaoke U,
-// Monster Hunter 3 Ultimate, Black Ops II, and, since their r10 build, Just
-// Dance and Lost Reavers. Those hosts expect a token their account server
-// issued, so on Pretendo the redirect drops the game on a server that won't
-// have it. Worse than useless there: it swaps "this game is not served" for a
-// connection that opens and then fails.
+// Their build sends six games to their own hosts by name: Wii Karaoke U,
+// Monster Hunter 3 Ultimate, Black Ops II, Just Dance and Lost Reavers since
+// their r10 build, and Need for Speed since their September 29 build. Those
+// hosts expect a token their account server issued, so on Pretendo the redirect
+// drops the game on a server that won't have it. Worse than useless there: it
+// swaps "this game is not served" for a connection that opens and then fails.
 //
 // Their two friend-server redirects are the opposite case and are never touched.
 // They point at pretendo.cc, which is exactly what a console on Pretendo needs.
