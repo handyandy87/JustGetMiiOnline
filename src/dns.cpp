@@ -39,8 +39,8 @@ namespace {
 // so the honest answer to the lookup is that the name doesn't resolve, which is
 // what the console would be told if nobody had patched anything. It's also the
 // fast answer: this runs on the thread the game is waiting on, and resolving a
-// long-dead Nintendo, Activision, Ubisoft or Bandai Namco name would burn the
-// resolver's whole timeout to arrive at the same place.
+// long-dead Nintendo, Activision, Ubisoft, Bandai Namco or Electronic Arts name
+// would burn the resolver's whole timeout to arrive at the same place.
 
 // What Protarium's build produces, for the case where their hook ran first and
 // this one is looking at their output.
@@ -111,11 +111,15 @@ constexpr const char *PROTARIUM_KEEP[] = {
 // The Black Ops II and Just Dance names are deliberately absent here and handled
 // by the domain test below instead. Their build catches every name on those
 // publishers' domains by rule, so listing the ones this plugin happens to know
-// would leave exactly the names nobody predicted still redirected.
+// would leave exactly the names nobody predicted still redirected. The two Need for
+// Speed names are listed because their build matches those two exactly and nothing
+// wider.
 constexpr const char *GAME_ORIGINALS[] = {
     "ssl.wahp.wah.wup.app.nintendo.net",
     "goshawk.capcom.co.jp",
     "mars.project-treasure.bng.jp", // Lost Reavers, added in the r10 build
+    "gosredirector.ea.com",         // Need for Speed, added in the September 29 build
+    "gosca.ea.com",                 // Need for Speed, added in the September 29 build
 };
 
 // The domains their build catches by rule, tested as substrings because their
