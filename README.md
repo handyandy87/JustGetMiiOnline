@@ -12,6 +12,8 @@ latest build:
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).
 You do not need their plugin if you only want the YouTube patcher functionality.**
 
+**Please read the installation instructions below when installing.**
+
 What you get out of it:
 
 - Mix and match. Any account server with any Miiverse, including pairings no single Inkay
@@ -25,14 +27,16 @@ What you get out of it:
 
 ## Installing
 
+**Important: You must disable or uninstall any other YouTube patchers (e.g., GiveMiiYouTube) when using this plugin.**
+
 **You need Protarium's build of Inkay for full plugin functionality. You do not need their
 plugin if you only want the YouTube patcher functionality.** Get it from
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).
 The three network settings ride on top of theirs and do nothing without it.
 
 Download `JustGetMiiOnline.wps` from this repository's
-[Releases](https://github.com/handyandy87/JustGetMiiOnline/releases) page, then copy it to
-`sd:/wiiu/environments/aroma/plugins/`, alongside Protarium's own Inkay plugin and module.
+[Releases](https://github.com/handyandy87/JustGetMiiOnline/releases) page, then **copy it to
+`sd:/wiiu/environments/aroma/plugins/`**, alongside Protarium's own Inkay plugin and module.
 All three coexist.
 
 The YouTube Patcher also needs `ContentRedirectionModule.wms` in
@@ -40,7 +44,7 @@ The YouTube Patcher also needs `ContentRedirectionModule.wms` in
 already. If you've got another YouTube patcher installed, like GiveMiiYouTube or
 WiiULeanback, uninstall it or disable it before you turn on the YouTube Patcher here.
 
-### Extra setup for Roseverse
+### Required steps for use with Roseverse
 
 Skip all of this unless you're planning to use Roseverse.
 
