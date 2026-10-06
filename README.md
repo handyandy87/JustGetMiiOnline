@@ -34,8 +34,8 @@ plugin if you only want the YouTube patcher functionality.** Get it from
 [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release).
 The three network settings ride on top of theirs and do nothing without it.
 
-Download `JustGetMiiOnline.wps` from this repository's
-[Releases](https://github.com/handyandy87/JustGetMiiOnline/releases) page, then **copy it to
+**Download `JustGetMiiOnline.wps` from this repository's
+[Releases](https://github.com/handyandy87/JustGetMiiOnline/releases) page, then copy it to
 `sd:/wiiu/environments/aroma/plugins/`**, alongside Protarium's own Inkay plugin and module.
 All three coexist.
 
