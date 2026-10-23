@@ -8,6 +8,10 @@
 // headers the page needs added. It is the same proxy the revival host was running, moved onto the
 // console, which is the honest description of what it does. Only /api/lounge/ is carried.
 //
+// The page's Share button posts here too, to /__leanback_share, and asks there how the post
+// screen is doing. share.cpp decides both and the plugin's post screen answers them. Neither
+// leaves the console.
+//
 // Plain http on the listening side, read by a page served over https. The shell lets that page
 // read a plain http answer only when its type starts with text/plain, text/xml, image/, video/,
 // audio/, application/octet-stream or binary/octet-stream, or when it is a 204 with no body.
@@ -26,6 +30,7 @@
 #include "proxy.h"
 
 #include "settings.h"
+#include "share.h"
 #include "trace.h"
 
 #include <atomic>
@@ -495,6 +500,66 @@ static void answer_plain(int fd, const char *status, const char *origin) {
     if (n > 0 && n < (int) sizeof(head)) send_all(fd, head, n);
 }
 
+// The Share button's requests, answered here and never carried anywhere. share.cpp decides
+// them; this reads the POST's body, which gets a few seconds in all rather than the usual idle
+// deadline, so the worker is back quickly. Every answer names youtube.com's origin, the only page
+// that may read it.
+#define SHARE_BODY_SECONDS 3
+static ShareRate sShareRate(SHARE_PER_MINUTE);
+static ShareRate sStateRate(SHARE_STATE_PER_MINUTE);
+
+static uint64_t now_ms() { return OSTicksToMilliseconds(OSGetSystemTime()); }
+
+// The path exactly, with or without a query after it.
+static bool share_target(const char *target, int length) {
+    int path = (int) strlen(SHARE_PATH);
+    return length >= path && strncmp(target, SHARE_PATH, path) == 0 &&
+           (length == path || target[path] == '?');
+}
+
+// The GET's answer: the state as a word, or nothing on a refusal.
+static void answer_state(int fd, const char *request) {
+    const char *text = "";
+    int status = share_state(&sStateRate, request, now_ms(), &text);
+    char cors[CORS_MAX];
+    if (!cors_headers(cors, sizeof(cors), SHARE_ORIGIN)) return;
+    char head[CORS_MAX + 256];
+    int length = (int) strlen(text);
+    int n = snprintf(head, sizeof(head),
+                     "HTTP/1.1 %s\r\n%sContent-Type: text/plain\r\nContent-Length: %d\r\n"
+                     "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
+                     share_status_line(status), cors, length);
+    if (n <= 0 || n >= (int) sizeof(head)) return;
+    if (send_all(fd, head, n) && length) send_all(fd, text, length);
+}
+
+static void answer_share(int fd, const char *request, int got, int extra) {
+    if (strncmp(request, "GET ", 4) == 0) {
+        answer_state(fd, request);
+        return;
+    }
+    size_t length = 0;
+    int status = share_head(request, &length);
+    if (!status) {
+        char body[SHARE_BODY_MAX];
+        size_t have = (size_t) extra < length ? (size_t) extra : length;
+        memcpy(body, request + got + 1, have);
+        uint64_t deadline = now_ms() + SHARE_BODY_SECONDS * 1000;
+        while (have < length) {
+            uint64_t now = now_ms();
+            int left = now < deadline ? (int) ((deadline - now + 999) / 1000) : 0;
+            if (!left || !readable(fd, left)) break;
+            int n = recv(fd, body + have, (int) (length - have), 0);
+            if (n <= 0) break;
+            have += (size_t) n;
+        }
+        status = have < length ? 400 : share_body(&sShareRate, body, length, now_ms(), nullptr);
+        volatile char *wipe = body;
+        for (size_t i = 0; i < sizeof(body); i++) wipe[i] = 0;
+    }
+    answer_plain(fd, share_status_line(status), SHARE_ORIGIN);
+}
+
 // The answer's own headers with ours added. Its status line is kept as it stands, anything it
 // already said about cross origin is dropped rather than sent twice, and its type is swapped for
 // one the shell lets the page read.
@@ -668,6 +733,10 @@ static void serve(int slot) {
     // carried anywhere. Nothing else on youtube.com has this path.
     if (strncmp(request, "GET " PROXY_PROBE_PATH " ", 5 + sizeof(PROXY_PROBE_PATH) - 1) == 0) {
         answer_config(fd, origin);
+        goto done;
+    }
+    if (request_target(request, &target, &targetLength) && share_target(target, targetLength)) {
+        answer_share(fd, request, got, extra);
         goto done;
     }
     // Only the lounge is carried. Anything else the page wants goes to whoever served it.

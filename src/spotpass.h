@@ -45,25 +45,26 @@
 //   changes with the account setting, only with which of Protarium's modules is
 //   installed.
 //
-// Protarium has shipped two modules, and they leave different strings in these four.
+// Protarium has shipped three modules, and they leave different strings in these four.
 // The older one points only the two tasksheet slots at itself, on api.protarium.lol, and
 // leaves the BOSS policy pair on Pretendo. The newer one points the tasksheets at
-// npts.app.protarium.lol and the policy pair at nppl.app.protarium.lol. The long
-// tasksheet slot says which one a console has, once per boot, and the other three are
-// judged against that one. When it shows neither, nothing is written.
+// npts.app.protarium.lol and the policy pair at nppl.app.protarium.lol. r17 does the same
+// on npts.app.protarium.online and nppl.app.protarium.online. The long tasksheet slot
+// says which one a console has, once per boot, and the other three are judged against
+// that one. When it shows none of them, nothing is written.
 //
 // On the older module Pretendo writes two. The policy list and the policy host already
 // hold what I'd write before anything here runs, so Pretendo leaves them alone there and
-// says nothing about them. On the newer one Pretendo writes all four, the way
-// Roseverse does on both: leaving the policy pair on one network while taking
+// says nothing about them. On the newer one and r17 Pretendo writes all four, the way
+// Roseverse does on every module: leaving the policy pair on one network while taking
 // tasksheets from another is precisely the "one network for work the other issued"
 // condition this file objects to.
 //
 // Every write is no longer than what it matched. The policy pair's are exactly as long
-// on the older module and two bytes shorter on the newer, which puts them in a stronger
-// spot than the tasksheets rather than a weaker one: there's no room argument to get
-// wrong, and a full-width match of the expected incumbent is the only proof available
-// that the address is right on this console.
+// on the older module, two bytes shorter on the newer and five on r17, which puts them in
+// a stronger spot than the tasksheets rather than a weaker one: there's no room argument
+// to get wrong, and a full-width match of the expected incumbent is the only proof
+// available that the address is right on this console.
 //
 // Call once per application start. Calling it again is harmless, since every write
 // compares first, and on the Protarium setting nothing is written at all.
@@ -105,26 +106,26 @@ const char *spotpass_policy_host_seen();
 // original string is still sitting past Protarium's terminator, which is what proves
 // the slot is wide enough for Pretendo's longer URL. If that's wrong the write is
 // refused rather than attempted, and these report the bytes actually found, so the
-// console itself says what's there. "no layout" means the long slot showed neither
-// module, so nothing was written. A slot that already held the destination's string
+// console itself says what's there. "no layout" means the long slot showed none of the
+// modules, so nothing was written. A slot that already held the destination's string
 // then still names the destination, the way it does after a plugin reload.
 const char *spotpass_long_status();
 const char *spotpass_short_status();
 
 // Which of Protarium's modules the long tasksheet slot showed when the menu read it:
-// "older" for tasksheets on api.protarium.lol, "newer" for npts.app.protarium.lol,
-// "not recognized" when it holds neither, and "not read yet" when the read failed.
+// "older" for tasksheets on api.protarium.lol, "newer" for npts.app.protarium.lol, "r17"
+// for npts.app.protarium.online, "not recognized" when it holds none of them, and "not
+// read yet" when the read failed.
 //
 // Read from the same snapshot as the long line. After this plugin has written the slot
 // it names the module only when the bytes this plugin's write left untouched are that
 // module's and it's the one this boot proved before writing.
 const char *spotpass_layout_name();
 
-// The BOSS policy pair, which Roseverse moves on either module and Pretendo only on the
-// newer one. Reported separately from the
-// tasksheets and from each other for the same reason the tasksheets are split up: each
-// stands on its own guard, so one refusing is a different fault from all four refusing
-// and a single line would hide it.
+// The BOSS policy pair, which Roseverse moves on every module and Pretendo only on the
+// newer one and r17. Reported separately from the tasksheets and from each other for the
+// same reason the tasksheets are split up: each stands on its own guard, so one refusing
+// is a different fault from all four refusing and a single line would hide it.
 //
 // These two have never been read on a console. "not theirs" is what they say if the
 // address or the expected contents turn out to be wrong, and nothing is written when
@@ -136,6 +137,6 @@ const char *spotpass_policy_host_status();
 // lines entirely instead of printing "left alone" twice on every console that will
 // never move them: every console on Protarium's SpotPass, and Pretendo's on the older
 // module. Pretendo's lines show once it has reported on the pair, which it does only
-// after the newer module is proved. The destination rule stays in spotpass.cpp; this is
-// the one question the menu needs to ask about it.
+// after the newer module or r17 is proved. The destination rule stays in spotpass.cpp;
+// this is the one question the menu needs to ask about it.
 bool spotpass_moves_policy(SpotPass chosen);

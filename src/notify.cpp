@@ -74,6 +74,10 @@ char toast_text[48];
 // must not then have DeInitLibrary called on a library that was never initialized.
 bool holding = false;
 
+// Whether both defaults above took, so a later toast from notify_add fades and waits the
+// same way the boot one does, or isn't posted at all.
+bool defaults_set = false;
+
 char toast_status[40] = "not run";
 
 } // namespace
@@ -119,6 +123,7 @@ void notify_boot(Account account, Miiverse miiverse) {
                       static_cast<int>(keep), static_cast<int>(fade));
         return;
     }
+    defaults_set = true;
 
     const NotificationModuleStatus shown = NotificationModule_AddInfoNotification(toast_text);
     if (shown != NOTIFICATION_MODULE_RESULT_SUCCESS) {
@@ -131,11 +136,19 @@ void notify_boot(Account account, Miiverse miiverse) {
     LOG("boot toast queued: %s", toast_text);
 }
 
+int notify_add(const char *text) {
+    if (!holding || !defaults_set) {
+        return NOTIFY_UNAVAILABLE;
+    }
+    return static_cast<int>(NotificationModule_AddInfoNotification(text));
+}
+
 void notify_shutdown() {
     if (!holding) {
         return;
     }
     holding = false;
+    defaults_set = false;
     NotificationModule_DeInitLibrary();
 }
 
