@@ -220,11 +220,6 @@ to the Miiverse selected in the menu. It needs Comments/Video Info on, and Enabl
 Sharing set to No hides it. Opening a YouTube video post from Miiverse plays that video in 2013
 and 2016.
 
-The first time YouTube starts, the patcher writes the revival host's root certificate to
-`sd:/wiiu/environments/aroma/plugins/config/JustGetMiiOnline/youtube/` and adds it beside the
-app's own certificates. Nothing gets written into the app itself. The Debug page says what the
-patcher did the last time YouTube started.
-
 If the Nintendo or Pretendo account servers are down, the Wii U Menu normally refuses to start
 YouTube at all, where it lets most other online software through after a warning. With the
 patcher on, YouTube gets the same warning and a Start button, so an account server outage
