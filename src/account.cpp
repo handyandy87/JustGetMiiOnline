@@ -34,6 +34,11 @@ constexpr const char *PRETENDO_ACCOUNT_URL = "https://account.pretendo.cc/v1/api
 
 // What Protarium's build writes there, and therefore how to tell it's installed.
 //
+// Part of a host rather than a whole one, because their builds don't agree on the host.
+// The older two write https://account.protarium.lol/v1/api/ and r17 writes
+// https://account.protarium.online/v1/api/, so the marker is the one piece of the name
+// every generation writes. The .lol half stays recognized until #29 drops it.
+//
 // INVARIANT: finding this marker proves their build is installed. Not finding it
 // proves nothing on its own, because this plugin writes Pretendo's URL to the same
 // address. So look_for_protarium() answers Unknown, not Other, when it finds this
@@ -52,7 +57,7 @@ constexpr const char *PRETENDO_ACCOUNT_URL = "https://account.pretendo.cc/v1/api
 // and the Unknown answer above guards against a race that can't happen rather than
 // one that routinely does. It stays because it costs nothing, and because the address
 // is shared with a module whose behavior is not mine to assume.
-constexpr const char *PROTARIUM_MARKER = "protarium.lol";
+constexpr const char *PROTARIUM_MARKER = "protarium.";
 
 // Three states, not two: it may simply not be knowable.
 enum class Host { Unknown, Protarium, Other };
@@ -320,6 +325,10 @@ const char *account_module_state() {
 
 const char *account_status() {
     return status;
+}
+
+const char *account_protarium_url() {
+    return protarium_url_length > 0 ? protarium_url : nullptr;
 }
 
 void account_init() {

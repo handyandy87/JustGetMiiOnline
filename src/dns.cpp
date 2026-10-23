@@ -45,30 +45,40 @@ namespace {
 // What Protarium's build produces, for the case where their hook ran first and
 // this one is looking at their output.
 //
-// A rule with four exceptions, and it used to be a list of seven game hosts. That
+// A rule with a few exceptions, and it used to be a list of seven game hosts. That
 // list was the wrong way round: it grew every time they added a game, so keeping it
 // current meant tracking their releases, and any name they added that nobody here
 // had heard of stayed redirected.
 //
 // Inverted, the maintenance follows the half that barely moves. Everything they
 // redirect lands on their domain, so the rule is the domain and the exceptions are
-// their own infrastructure, which is four hosts and changes rarely. A game they
+// their own infrastructure, which is a short list and changes rarely. A game they
 // add tomorrow is covered the day they ship it, with no release from here.
 //
 // The risk runs the other way now: a new infrastructure host of theirs gets refused
 // until it's listed. That's visible rather than silent, because every refusal shows
 // up in the recent lookups in the config menu with a cross beside it, and nothing is
 // refused at all unless the account server is Pretendo.
-constexpr const char *PROTARIUM_DOMAIN = "protarium.lol";
-
-// The four left resolving: Protaverse's three hosts and their account server.
 //
-// Protaverse's are disc.protarium.lol for discovery, api.protarium.lol for the API and
-// portal.protarium.lol for the portal. Protaverse is offered on a Pretendo account,
-// where token.cpp routes its token request to their account server, so these are a
-// destination a setting here selects, and refusing them would leave that pairing signed
-// in with nowhere to go. An earlier version of this comment said no setting selected any
-// of them on Pretendo, which was true until Protaverse was offered there.
+// Two domains, because their builds are on two. The older two redirect to protarium.lol
+// and r17 to protarium.online, and the rule is the same on both. Spelled with the
+// leading dot the suffix test needs, and the bare domain is the same string past it. The
+// .lol one goes with #29.
+constexpr const char *PROTARIUM_DOMAINS[] = {
+    ".protarium.lol",
+    ".protarium.online",
+};
+
+// The names left resolving: Protaverse's three hosts and their account server on either
+// domain, and on protarium.online their CDN and SpotPass hosts as well.
+//
+// Protaverse's are disc. for discovery, api. for the API and portal. for the portal, on
+// protarium.lol for the older builds and protarium.online for r17. Protaverse is offered
+// on a Pretendo account, where token.cpp routes its token request to their account
+// server, so these are a destination a setting here selects, and refusing them would
+// leave that pairing signed in with nowhere to go. An earlier version of this comment
+// said no setting selected any of them on Pretendo, which was true until Protaverse was
+// offered there.
 //
 // The portal is the one nothing has measured being asked for here. These hooks don't
 // run in the Miiverse applet, which is what opens it, so it only matters to a game or
@@ -76,6 +86,14 @@ constexpr const char *PROTARIUM_DOMAIN = "protarium.lol";
 // api.protarium.lol is also the tasksheet host in their older module. Their newer one
 // moved SpotPass to npts.app.protarium.lol and nppl.app.protarium.lol, and neither is
 // kept, because Protarium's SpotPass is not an answer a Pretendo account is offered.
+//
+// r17 is different, and on purpose. It redirects Nintendo's own CDN and SpotPass names
+// (npdi.cdn., npdl.cdn., npfl.c.app., nppl.app., npts.app. and service.spr.app.) to
+// same-named hosts on protarium.online, and refusing those would take content downloads
+// away from a Pretendo account along with Protarium's SpotPass. So they're kept: the
+// SpotPass addresses this plugin writes still decide whose tasksheets the console asks
+// for, and the CDN names are content rather than a service. The services r17 added,
+// ama., nfs. and demaecan., are not kept, so the domain rule refuses them like any game.
 //
 // The account server is kept because it's the subject of a write rather than of a
 // refusal, which was once the whole reason for all of these. The account URL, and on
@@ -97,12 +115,23 @@ constexpr const char *PROTARIUM_DOMAIN = "protarium.lol";
 // so the pair reads as the fault it is.
 //
 // Exact matches, never suffixes: disc.protarium.lol keeps working while
-// jd.protarium.lol doesn't, and only the whole name separates them.
+// jd.protarium.lol doesn't, and only the whole name separates them. The first four go
+// with #29.
 constexpr const char *PROTARIUM_KEEP[] = {
     "disc.protarium.lol",
     "api.protarium.lol",
     "portal.protarium.lol",
     "account.protarium.lol",
+    "disc.protarium.online",
+    "api.protarium.online",
+    "portal.protarium.online",
+    "account.protarium.online",
+    "npdi.cdn.protarium.online",
+    "npdl.cdn.protarium.online",
+    "npfl.c.app.protarium.online",
+    "nppl.app.protarium.online",
+    "npts.app.protarium.online",
+    "spr.protarium.online",
 };
 
 // What the games ask for, for the case where this hook runs first and theirs hasn't
@@ -114,12 +143,18 @@ constexpr const char *PROTARIUM_KEEP[] = {
 // would leave exactly the names nobody predicted still redirected. The two Need for
 // Speed names are listed because their build matches those two exactly and nothing
 // wider.
+//
+// The Nintendo CDN and SpotPass names r17 redirects are deliberately absent too. Their
+// redirected spellings are kept above, so refusing the originals here would refuse on
+// one nesting what the other lets through.
 constexpr const char *GAME_ORIGINALS[] = {
     "ssl.wahp.wah.wup.app.nintendo.net",
     "goshawk.capcom.co.jp",
     "mars.project-treasure.bng.jp", // Lost Reavers, added in the r10 build
     "gosredirector.ea.com",         // Need for Speed, added in the September 29 build
     "gosca.ea.com",                 // Need for Speed, added in the September 29 build
+    "wup-ama.app.nintendo.net",     // added in the r17 build
+    "nws.demae-can.com",            // added in the r17 build
 };
 
 // The domains their build catches by rule, tested as substrings because their
@@ -174,8 +209,8 @@ bool equals_ci(const char *a, const char *b) {
 }
 
 // A suffix test rather than a substring one, because the domain rule below turns
-// on where the domain sits in the name. "protarium.lol.example.com" contains their
-// domain and is not theirs, and only the end of the name can tell those apart.
+// on where the domain sits in the name. "protarium.lol.example.com" contains one of
+// their domains and is not theirs, and only the end of the name can tell those apart.
 bool ends_with_ci(const char *name, const char *suffix) {
     const size_t name_length = std::strlen(name);
     const size_t suffix_length = std::strlen(suffix);
@@ -207,6 +242,16 @@ bool contains_ci(const char *haystack, const char *needle) {
     return false;
 }
 
+// One of their domains, or any name under one.
+bool is_protarium(const char *name) {
+    for (const char *domain : PROTARIUM_DOMAINS) {
+        if (equals_ci(name, domain + 1) || ends_with_ci(name, domain)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // Which Miiverse discovery host the console actually resolved, and in which
 // process, kept separately from the list above and never reset.
 //
@@ -215,11 +260,13 @@ bool contains_ci(const char *haystack, const char *needle) {
 // question that matters here, which is whether a Roseverse host is ever reached
 // at all. The answer can be produced inside the Miiverse applet, and the config
 // menu can't be opened from there, so anything that gets cleared on the way back
-// to the menu can't carry it. This is four bits and four process ids, so keeping
+// to the menu can't carry it. This is five bits and five process ids, so keeping
 // it for the whole boot costs nothing.
 //
-// The swap only ever moves this one string, so these four spellings are the whole
-// space: nobody's, Protarium's, Juxt's, Rose's.
+// The swap only ever moves this one string, so these spellings are the whole space:
+// nobody's, Protarium's on either of their domains, Juxt's, Rose's. Both of Protarium's
+// say Protaverse, so the line reads the same whichever build is installed, and the .lol
+// one goes with #29.
 struct DiscoveryHost {
     const char *name;
     const char *label;
@@ -228,6 +275,7 @@ struct DiscoveryHost {
 constexpr DiscoveryHost DISCOVERY_HOSTS[] = {
     {"discovery.olv.nintendo.net", "Nintendo"},
     {"disc.protarium.lol", "Protaverse"},
+    {"disc.protarium.online", "Protaverse"},
     {"discovery.olv.pretendo.cc", "Juxt"},
     {"disco.olv.projectrose.cafe", "Roseverse"},
 };
@@ -279,7 +327,7 @@ bool should_refuse(const char *name) {
     // Their domain, minus their own infrastructure. Seeing one of these at all
     // means their hook rewrote the name before this one saw it, which is the
     // nesting this records.
-    if (equals_ci(name, PROTARIUM_DOMAIN) || ends_with_ci(name, ".protarium.lol")) {
+    if (is_protarium(name)) {
         for (const char *keep : PROTARIUM_KEEP) {
             if (equals_ci(name, keep)) {
                 return false;
