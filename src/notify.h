@@ -65,6 +65,14 @@
 // which is why there's no guard.
 void notify_boot(Account account, Miiverse miiverse);
 
+// One more info toast, for the update check, with the same defaults the boot toast set.
+// Answers 0 when the module took it, NOTIFY_UNAVAILABLE when notify_boot never got as far
+// as its defaults, and otherwise the NotificationModuleStatus the module returned, which
+// is never positive. The text has to outlive the call, since the module keeps the pointer
+// until the overlay shows it. Call from a hook, not from a thread of your own.
+constexpr int NOTIFY_UNAVAILABLE = 1;
+int notify_add(const char *text);
+
 // Release the library. Call from DEINITIALIZE_PLUGIN. Does nothing unless the library
 // was actually initialized, which isn't the same as notify_boot having run: a console
 // with no NotificationModule reaches it and comes back with nothing held.

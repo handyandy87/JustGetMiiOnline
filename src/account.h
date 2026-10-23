@@ -79,6 +79,12 @@ const char *account_module_state();
 // One line for the config menu, which is the only place a result can be read.
 const char *account_status();
 
+// Protarium's account URL as their module wrote it this boot, or nullptr when the read at
+// plugin initialization didn't see one. Which domain it names is the one reading this plugin
+// has of which generation of their build is installed, so olv.cpp asks it before writing a
+// Protaverse slot of its own.
+const char *account_protarium_url();
+
 class IosuHandle;
 
 // Point the account server at the other network for the length of one call, then put

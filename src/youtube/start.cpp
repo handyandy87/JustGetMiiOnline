@@ -6,6 +6,18 @@
 //     https://www.youtube.com/tv?lb=dual,suggest,comments
 //     https://www.youtube.com/tv?lb=2016,comments
 //
+// A run started from a Miiverse post that names a video gets the watch route after the query,
+// which both apps open at load:
+//
+//     https://www.youtube.com/tv?lb=2016,comments#/watch?v=<id>
+//
+// With Share on, the list gets share and the query gets the listener's token for this start,
+// which the page sends back with every share:
+//
+//     https://www.youtube.com/tv?lb=dual,comments,share&shtok=<token>
+//
+// The token is a secret, and the copy for the logs doesn't have it.
+//
 // The host serves the 2016 app for a url naming 2016 and the 2013 one otherwise. Neither app reads
 // a query parameter it doesn't know, and each app's own client reads this one. The 2016 app is
 // told no arrangement, since the one it draws is its own.
@@ -22,8 +34,10 @@
 #include <whb/log.h>
 
 #include "image.h"
+#include "jump.h"
 #include "patch.h"
 #include "settings.h"
+#include "share.h"
 #include "trace.h"
 #include "utils/logger.h"
 
@@ -33,17 +47,52 @@
 
 static const char OWN_URL[] = "https://www.youtube.com/tv";
 
-static char sUrl[96];
+static const char WATCH[] = "#/watch?v=";
+static const char TOKEN[] = "&shtok=";
+
+// The longest url: the host, the longest version name, suggest, comments, share, the longest
+// token and the watch route.
+static char sUrl[sizeof(OWN_URL) + sizeof("?lb=hybrid,suggest,comments,share") + sizeof(TOKEN) +
+                 SHARE_TOKEN_MAX + sizeof(WATCH) + JUMP_ID_BYTES];
+static char sShown[sizeof(sUrl)];
+
+// Builds the url into sUrl and a copy for the logs into sShown, or leaves both empty when it
+// doesn't fit.
+static void buildUrl() {
+    const char *screens = settings_screens_name();
+    const char *suggest = screens && settings_suggestions() ? ",suggest" : "";
+    const char *comments = settings_comments() ? ",comments" : "";
+    // A token shorter than share_token promises is one that couldn't be made, and the button
+    // stays off.
+    const char *token = share_token();
+    size_t tokenLength = strnlen(token, SHARE_TOKEN_MAX + 1);
+    bool hasShare = settings_share() && settings_version() != VERSION_CURRENT &&
+                    tokenLength >= SHARE_TOKEN_MIN && tokenLength <= SHARE_TOKEN_MAX;
+    const char *share = hasShare ? ",share" : "";
+    const char *tokenName = hasShare ? TOKEN : "";
+    const char *video = jump_video_id();
+    const char *watch = video ? WATCH : "";
+    if (!video) {
+        video = "";
+    }
+    int n = snprintf(sUrl, sizeof(sUrl), "%s?lb=%s%s%s%s%s%s%s%s", OWN_URL,
+                     screens ? screens : "2016", suggest, comments, share, tokenName,
+                     hasShare ? token : "", watch, video);
+    sShown[0] = 0;
+    if (n <= 0 || (size_t) n >= sizeof(sUrl)) {
+        sUrl[0] = 0;
+        return;
+    }
+    snprintf(sShown, sizeof(sShown), "%s?lb=%s%s%s%s%s%s%s%s", OWN_URL,
+             screens ? screens : "2016", suggest, comments, share, tokenName,
+             hasShare ? "..." : "", watch, video);
+}
 
 const char *start_url_point() {
-    const char *screens = settings_screens_name();
-    if (screens) {
-        snprintf(sUrl, sizeof(sUrl), "%s?lb=%s%s%s", OWN_URL, screens,
-                 settings_suggestions() ? ",suggest" : "",
-                 settings_comments() ? ",comments" : "");
-    } else {
-        snprintf(sUrl, sizeof(sUrl), "%s?lb=2016%s", OWN_URL,
-                 settings_comments() ? ",comments" : "");
+    buildUrl();
+    if (!sUrl[0]) {
+        trace_line("start url did not fit, left as the app's own");
+        return nullptr;
     }
 
     uint32_t pointer = image_data(POINTER_LINK);
@@ -68,6 +117,6 @@ const char *start_url_point() {
         trace_line("start url pointer 0x%08x found, the write did not take", pointer);
         return nullptr;
     }
-    DEBUG_FUNCTION_LINE("WiiULeanback: the app starts at %s", sUrl);
+    DEBUG_FUNCTION_LINE("WiiULeanback: the app starts at %s", sShown);
     return sUrl;
 }

@@ -49,6 +49,10 @@ bool settings_suggestions();
 // Whether a video's comments can be opened on the GamePad, which the 2013 and 2016 builds take.
 bool settings_comments();
 
+// Whether the page gets a Share button, which needs a post screen to hand the video to. This
+// plugin has none, so it's always false here.
+bool settings_share();
+
 // The name the page knows the 2013 build's arrangement by, which is what rides on the start url
 // and the listener's config reply, or null for a version whose screens are its own.
 const char *settings_screens_name();

@@ -31,11 +31,14 @@
 
 #include "youtube.h"
 #include "logger.h"
+#include "olv_share.h"
 #include "youtube/image.h"
+#include "youtube/jump.h"
 #include "youtube/newline.h"
 #include "youtube/proxy.h"
 #include "youtube/revival_ca.h"
 #include "youtube/settings.h"
+#include "youtube/share.h"
 #include "youtube/start.h"
 #include "youtube/tls12.h"
 #include "youtube/ua.h"
@@ -75,6 +78,7 @@ constexpr const char *KEY_PATCHER = "youtube_patcher";
 constexpr const char *KEY_VERSION = "youtube_version";
 constexpr const char *KEY_SUGGESTIONS = "youtube_suggestions";
 constexpr const char *KEY_COMMENTS = "youtube_comments";
+constexpr const char *KEY_SHARE = "youtube_share";
 
 constexpr const char *YOUTUBE_CLIENT_ID = "e921a604fce89365498613fdf001b492";
 constexpr uint64_t YOUTUBE_TITLE_ID = 0x0005000010105700llu;      // the YouTube app
@@ -89,6 +93,14 @@ bool patcher = true;
 Version version = VERSION_2013_STANDARD;
 bool suggestions = true;
 bool comments = true;
+
+// Whether the Share button and the Miiverse library it needs are offered at all. Off keeps the
+// library out of YouTube entirely, and loading it is what costs a slower start.
+bool share = true;
+
+// Set at application start when this run should load the Miiverse library, and spent by
+// youtube_premain.
+bool preload_wanted = false;
 
 // In the order the menu lists them, which isn't the order of their values. Same names and order
 // as WiiULeanback's menu.
@@ -172,6 +184,11 @@ void comments_changed(ConfigItemBoolean *, bool value) {
     store(KEY_COMMENTS, value ? 1u : 0u);
 }
 
+void share_changed(ConfigItemBoolean *, bool value) {
+    share = value;
+    store(KEY_SHARE, value ? 1u : 0u);
+}
+
 bool is_youtube(uint64_t id) {
     return id == YOUTUBE_TITLE_ID || id == YOUTUBE_BETA_TITLE_ID;
 }
@@ -245,6 +262,7 @@ void settings_load() {
 
     suggestions = load(KEY_SUGGESTIONS, 1) != 0;
     comments = load(KEY_COMMENTS, 1) != 0;
+    share = load(KEY_SHARE, 1) != 0;
 }
 
 // None of these relaunch the console. They're read when YouTube starts, so a change takes effect
@@ -273,6 +291,11 @@ bool settings_menu(WUPSConfigCategoryHandle root) {
                                               "Disabled") != WUPSCONFIG_API_RESULT_SUCCESS) {
         return false;
     }
+    if (WUPSConfigItemBoolean_AddToCategoryEx(root, KEY_SHARE, "Enable Miiverse Sharing", true,
+                                              share, &share_changed, "Yes",
+                                              "No") != WUPSCONFIG_API_RESULT_SUCCESS) {
+        return false;
+    }
     return true;
 }
 
@@ -297,6 +320,37 @@ const char *settings_screens_name() {
     return screens_of(version);
 }
 
+void youtube_premain() {
+    // The title check as well, so a run whose trigger never fired can't hand its load to the
+    // next title.
+    if (!preload_wanted || !is_youtube_title()) {
+        preload_wanted = false;
+        return;
+    }
+    preload_wanted = false;
+    // Still early enough: the app hasn't loaded anything of its own yet, so there's room for
+    // the library, which there isn't by the time a share is asked for.
+    olv_share_preload();
+}
+
+// Whether the page shows Share to Miiverse. olv_share.cpp decides which Miiverse it can post to.
+bool settings_share() {
+    return patcher && share && olv_share_available();
+}
+
+// The listener's share endpoint lands here, with the status it sends back. The page only
+// talks to a listener the patcher started, so there's no patcher check of its own.
+int proxy_share(const char *video_id, const char *title, const char *channel) {
+    if (!share) {
+        return 503;
+    }
+    return olv_share_start(video_id, title, channel);
+}
+
+int proxy_share_state(void) {
+    return olv_share_state();
+}
+
 void youtube_start() {
     if (!is_youtube_title()) {
         return;
@@ -310,7 +364,10 @@ void youtube_start() {
     }
     report.ran = true;
     report.version = version;
+    LOG("YouTube: start");
 
+    // A Miiverse post's jump to a video, which the start url carries.
+    jump_read();
     // Every patch below works from where the loader put the rpx, which is not where it was linked.
     image_locate();
     report.image = image_how();
@@ -333,6 +390,18 @@ void youtube_start() {
     }
     report.signin = whitelist_allow_accounts();
     report.agent = ua_unblock();
+    // Share's token rides on the start url and the listener checks every share against it, so
+    // it's made before both, new for every start.
+    {
+        const OSTime token_start = OSGetTime();
+        share_token_new();
+        LOG("YouTube: share token made in %u ms",
+            static_cast<unsigned>(OSTicksToMilliseconds(OSGetTime() - token_start)));
+    }
+    // The Miiverse library for a share, loaded just before the app's own code runs rather than
+    // here. Here is before Protarium's module does its startup work, and with the library
+    // already loaded that work swept memory for fourteen seconds on hardware.
+    preload_wanted = settings_share();
     report.url = start_url_point() != nullptr;
     report.proxy = proxy_start();
 

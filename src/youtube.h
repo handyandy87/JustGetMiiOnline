@@ -35,3 +35,8 @@ const char *youtube_answer(const char *node);
 // One line of the Debug page's readout of the last YouTube start this boot. False once there are
 // no more lines, which is right away with the patcher off and nothing started.
 bool youtube_report_line(size_t index, char *out, size_t size);
+
+// Loads the Miiverse library for a share when this YouTube run asked for it. Called from the
+// pre-main trigger in olv.cpp, after every module's start hooks and before the app's first
+// instruction.
+void youtube_premain();

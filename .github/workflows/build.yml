@@ -87,20 +87,34 @@ jobs:
             exit 1
           fi
 
-      # Re-runnable: a retried release job replaces the asset instead of failing on
+      # The plugin's menu installs a release only when it can check the download
+      # against this file, in sha256sum's format with the file's name in it. A release
+      # without one is pointed at instead of installed.
+      - name: Write the checksum
+        run: sha256sum JustGetMiiOnline.wps > JustGetMiiOnline.wps.sha256
+
+      # Re-runnable: a retried release job replaces the assets instead of failing on
       # a release that the first attempt already created.
       #
       # A pre-release from this branch, so it never takes Latest from main's release while
       # RosePatcher v2 isn't out. main's README sends people to the Releases page, and
       # Latest is what they'd download.
+      #
+      # To keep the menu from installing a release, say one that needs a companion
+      # updated alongside it, edit its notes on GitHub to add this line, which doesn't
+      # show on the Releases page. src/update.cpp looks for it. Until it's there, a
+      # console that checks can install the release, so add it as soon as this finishes.
+      #   <!-- jgmo: manual -->
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" JustGetMiiOnline.wps --clobber
+            gh release upload "$GITHUB_REF_NAME" JustGetMiiOnline.wps \
+              JustGetMiiOnline.wps.sha256 --clobber
           else
             gh release create "$GITHUB_REF_NAME" JustGetMiiOnline.wps \
+              JustGetMiiOnline.wps.sha256 \
               --title "$GITHUB_REF_NAME" \
               --verify-tag \
               --prerelease \
