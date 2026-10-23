@@ -1,5 +1,12 @@
 # JustGetMiiOnline
 
+> [!CAUTION]
+> **Protarium moved to new servers effective October 23, 2026.** To keep using Protarium
+> online, you must download their new Inkay from
+> [Protarium-Network/Inkay-GitHub-Release](https://github.com/Protarium-Network/Inkay-GitHub-Release)
+> and this plugin's new release from
+> [Releases](https://github.com/handyandy87/JustGetMiiOnline/releases).
+
 An Aroma plugin that picks which account server your Wii U signs in against, which
 Miiverse it talks to, and which network serves SpotPass. Protarium's own Inkay stays
 installed and in charge of everything else. I move those three things and nothing else.
@@ -106,11 +113,12 @@ you start YouTube.
 | Miiverse, `Miiverse Service` | Protaverse, Juxt or Roseverse |
 | SpotPass, `SpotPass Server` | the account server's own, or Roseverse's (only on Roseverse) |
 
-**Outside the YouTube app, on the defaults it writes nothing at all.** Not Protarium's own
-values written back, nothing: every path checks the setting before it touches memory. The
-YouTube Patcher is the one thing on by default, and it never touches anything but the YouTube
-app. Turn it off and installing this and leaving it alone should be indistinguishable from
-not installing it.
+**On the defaults it writes almost nothing outside the YouTube app.** The one exception is a
+title that loads Miiverse after it has started, which Protarium's module never gets to patch,
+so Miiverse in it fails with 115-5004. There I point that copy at the Miiverse you've
+selected, Protaverse included. Everything else checks the setting first and writes nothing on
+the defaults. Two things are on by default: the YouTube Patcher, which never touches anything
+but the YouTube app, and the update check below.
 
 Change any of the three, or run the WaraWara Plaza reset, and the console relaunches when you
 back out of the menu, which is what keeps a change whole. Back out having changed nothing and
@@ -161,6 +169,33 @@ the Debug page. One server per console, so having either is not having the other
 Protarium's carries Splatfests, Conquest and 100 Mario, Rose's carries the WaraWara Plaza of
 the Miiverse in use.
 
+### Update check
+
+Once per boot, a few seconds after the Wii U Menu comes up, the plugin asks GitHub for this
+repo's list of releases. If your release line has a newer one, you get a toast like
+`JustGetMiiOnline v1.0.4 is available` the next time you open the HOME Menu or start
+something. A v1 install only hears about v1 releases and a v2 install only about v2. It uses
+the CURLWrapperModule that comes with Aroma, and without it the check does nothing. If
+anything goes wrong, you see nothing, and the Debug page says what happened on its
+`Update check` line.
+
+When there's a newer release, the menu opened from the Wii U Menu also has an
+**Install vX.Y.Z** item. Set it to Yes and back out, and the plugin downloads the new
+`JustGetMiiOnline.wps`, checks it against the checksum published with the release, and only
+then swaps it in. Your old copy stays in the plugins folder as `JustGetMiiOnline.wps.bkup`,
+which Aroma doesn't load, so you can rename it back if you need to. Then the console relaunches
+into the new version. Start a game while it's downloading and the old version stays put, so
+just install again from the Wii U Menu. If the swap was already done, a toast asks you to
+restart instead. It only replaces `JustGetMiiOnline.wps`, so if you renamed the
+file, install by hand. A release that needs more than a file swap says so in the menu and
+points you at the Releases page, and the Debug page's `Update install` line says how an
+install went.
+
+That request goes straight from the console to GitHub, so GitHub sees your IP address when it
+runs. The request names the plugin's version and nothing about you or the console. If you'd
+rather it didn't happen, set **Check for Updates** to Disabled in the menu, and from the next
+boot on it won't.
+
 ## YouTube Patcher
 
 The Wii U YouTube app stopped working in 2022. Nintendo's servers stopped handing it the
@@ -180,6 +215,7 @@ It has a page of its own in the menu, **YouTube Patcher**:
 | `App Version Experience` | one of the five versions below, 2013 (Standard) by default |
 | `Search Suggestions` | Enabled or Disabled, Enabled by default |
 | `Use GamePad for Comments/Video Info` | Enabled or Disabled, Enabled by default |
+| `Enable Miiverse Sharing` | Yes or No, Yes by default |
 
 The versions:
 
@@ -200,6 +236,12 @@ Search Suggestions only changes the three 2013 versions. Comments/Video Info put
 comments on the GamePad in every version but Current (Official), and in 2013 and 2016 an (i)
 beside them for the video's details. Signed in, you can post comments and replies from the
 GamePad keyboard.
+
+**Share** is a button on the GamePad's video information screen in 2012, 2013 and 2016. It
+opens the console's own Miiverse post screen with the video's title, its channel and its
+link, and posts to the Miiverse selected in the menu. It needs Comments/Video Info on, and
+it takes YouTube a little longer to start while it's on, since the Miiverse library has to
+load with the app. Set Enable Miiverse Sharing to No and the button and the wait both go away.
 
 The first time YouTube starts, the patcher writes the revival host's root certificate to
 `sd:/wiiu/environments/aroma/plugins/config/JustGetMiiOnline/youtube/` and adds it beside the

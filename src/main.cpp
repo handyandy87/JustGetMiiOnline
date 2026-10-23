@@ -67,9 +67,10 @@
 //
 // These three cost nothing on their defaults, because on them this plugin writes
 // nothing. Every body here starts by checking the setting, so an absent, unreadable
-// or unrecognized stored value all end up in the same place: doing nothing. The
-// YouTube Patcher is the one thing on by default, and it never touches anything but
-// the YouTube app.
+// or unrecognized stored value all end up in the same place: doing nothing. Two
+// things are on by default. The YouTube Patcher never touches anything but the YouTube
+// app, and the update check reads one page from GitHub once per boot and writes
+// nothing anywhere, which update.h sets out.
 //
 // Memory search and replace is how two patchers end up destroying each other, so
 // the rule in this project is: don't. The Miiverse swap is one of the two places that
@@ -132,8 +133,11 @@
 #include "logger.h"
 #include "notify.h"
 #include "olv.h"
+#include "olv_share.h"
 #include "spotpass.h"
 #include "token.h"
+#include "update.h"
+#include "update_install.h"
 #include "youtube.h"
 
 #include <wups.h>
@@ -141,7 +145,7 @@
 WUPS_PLUGIN_NAME("JustGetMiiOnline");
 WUPS_PLUGIN_DESCRIPTION("Account server, Miiverse and SpotPass selection for Protarium, and a "
                         "YouTube patcher");
-WUPS_PLUGIN_VERSION("v1.0.2");
+WUPS_PLUGIN_VERSION("v1.0.3");
 WUPS_PLUGIN_AUTHOR("HandyAndy87");
 WUPS_PLUGIN_LICENSE("GPLv3");
 
@@ -238,9 +242,22 @@ ON_APPLICATION_START() {
     // if what was stored isn't something this pairing allows.
     spotpass_apply(Config::spotpass);
 
+    // A share's library, buffers and thread all belonged to the process that just ended.
+    olv_share_reset();
+
     // Last, and only in the YouTube app. Its patches have to go in before the app draws
     // anything, and none of its own code has run yet.
     youtube_start();
+
+    // A toast the update check found and no hook has queued yet. It only queues, so
+    // nothing here waits on the overlay. The installer's last toast the same way.
+    update_post();
+    update_install_post();
+
+    // The update check's power-on start. Only the Wii U Menu acts on it, and the thread
+    // waits out the rest of boot before it touches the network. update.h has why the
+    // foreground start alone wasn't enough.
+    update_start(true);
 }
 
 ON_ACQUIRED_FOREGROUND() {
@@ -250,10 +267,39 @@ ON_ACQUIRED_FOREGROUND() {
     // the foreground is later than both, which is the whole reason this is the
     // trigger.
     olv_apply_foreground();
+
+    // The update check, here rather than at plugin initialization or application start,
+    // which are both still boot. update.h has what those cost before. Only the Wii U Menu
+    // starts it, once per boot, and the network work happens on a thread of its own.
+    update_start();
+    update_post();
+
+    // An installed update waiting for the Wii U Menu to be in front relaunches here.
+    update_install_foreground(true);
+    update_install_post();
+
+    // The post screen hands the app back through the foreground, which is the one moment
+    // what came of a share can be read. Nothing at all unless a share opened that screen.
+    olv_share_foreground();
+}
+
+ON_RELEASE_FOREGROUND() {
+    // The HOME Menu opening is often the first hook after the check has its answer.
+    update_post();
+    update_install_foreground(false);
+    update_install_post();
 }
 
 ON_APPLICATION_ENDS() {
     // Stops the YouTube proxy and takes the certificate layer down, when the run ending is
     // one the patcher started.
     youtube_end();
+
+    // The update check's thread is stopped and joined before the menu's process goes, and
+    // a check it cut short runs again in the next menu.
+    update_app_ends();
+
+    // The installer's too. A download is cut off and the plugin stays as it was, and a
+    // swap under way finishes first.
+    update_install_app_ends();
 }

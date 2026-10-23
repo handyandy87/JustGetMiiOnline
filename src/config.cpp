@@ -20,10 +20,13 @@
 #include "logger.h"
 #include "notify.h"
 #include "olv.h"
+#include "olv_share.h"
 #include "plaza.h"
 #include "secret.h"
 #include "spotpass.h"
 #include "token.h"
+#include "update.h"
+#include "update_install.h"
 #include "youtube.h"
 #include "youtube/settings.h"
 
@@ -55,6 +58,7 @@ constexpr const char *KEY_ACCOUNT = "account";
 constexpr const char *KEY_SPOTPASS = "spotpass";
 constexpr const char *KEY_DEBUG_LOG = "debug_log";
 constexpr const char *KEY_ADVANCED_OVERRIDES = "advanced_overrides";
+constexpr const char *KEY_UPDATE_CHECK = "update_check";
 
 void log_storage(WUPSStorageError err, const char *what) {
     if (err != WUPS_STORAGE_ERROR_SUCCESS) {
@@ -265,6 +269,20 @@ void debug_log_changed(ConfigItemBoolean *, bool value) {
     log_storage(WUPSStorageAPI_StoreU32(nullptr, KEY_DEBUG_LOG, value ? 1u : 0u), KEY_DEBUG_LOG);
 }
 
+// On by default, and stored. It decides whether the next boot checks, so it never sets
+// change_needs_reboot. update.h has the check.
+void update_check_changed(ConfigItemBoolean *, bool value) {
+    update_set_enabled(value);
+    log_storage(WUPSStorageAPI_StoreU32(nullptr, KEY_UPDATE_CHECK, value ? 1u : 0u),
+                KEY_UPDATE_CHECK);
+}
+
+// Yes means install when the menu closes, and No before closing takes it back.
+// update_install.h has the rest.
+void install_requested(ConfigItemBoolean *, bool value) {
+    update_install_choose(value);
+}
+
 // Turning it on is the action. Turning it off isn't, so it does nothing: there's no
 // un-importing, and a stored constant is only ever replaced by a later import that
 // succeeded.
@@ -313,9 +331,10 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         }
     }
 
-    // Three settings and one action at the root, with everything diagnostic on a page
-    // of its own below them. The third setting is a line of text rather than an item on
-    // the two pairings that have only one answer for it. What each choice costs is in
+    // Three settings, one action and the update switch at the root, with everything
+    // diagnostic on a page of its own below them. The third setting is a line of text
+    // rather than an item on the two pairings that have only one answer for it. What
+    // each choice costs is in
     // the README, which is where a paragraph can be read properly. A menu that scrolls
     // is a menu nobody reads to the end of, and everything that used to be here got
     // read once at most and then scrolled past forever.
@@ -432,6 +451,34 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
 
     err = WUPSConfigAPI_Category_AddItem(root, import_item);
     if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
+
+    WUPSConfigItemHandle update_item;
+    err = WUPSConfigItemBoolean_CreateEx(KEY_UPDATE_CHECK, "Check for Updates", true,
+                                         update_enabled(), &update_check_changed, "Enabled",
+                                         "Disabled", &update_item);
+    if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
+
+    err = WUPSConfigAPI_Category_AddItem(root, update_item);
+    if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
+
+    // Beneath the switch, and only once the check has found a newer release: the same
+    // Yes/No action item as the import, acted on when the menu closes. A release that
+    // can't be installed from here gets a line saying where to get it instead.
+    char offer[80];
+    const InstallOffer offered = update_install_offer(offer, sizeof(offer));
+    if (offered == InstallOffer::ITEM) {
+        WUPSConfigItemHandle install_item;
+        err = WUPSConfigItemBoolean_CreateEx("update_install", offer, false, false,
+                                             &install_requested, "Yes", "No", &install_item);
+        if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
+
+        err = WUPSConfigAPI_Category_AddItem(root, install_item);
+        if (err != WUPSCONFIG_API_RESULT_SUCCESS) return log_config(err, __LINE__);
+    } else if (offered == InstallOffer::LINE) {
+        if (add_stub(root, offer) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+        }
+    }
 
     // The last item at the root, and deliberately not described as being above Debug.
     // The menu backend draws every sub-category before any item, so the YouTube Patcher
@@ -564,6 +611,13 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
     }
 
+    // The last few late loads, by process. olv_late_report_line has how they read.
+    for (size_t i = 0; olv_late_report_line(i, line, sizeof(line)); ++i) {
+        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+        }
+    }
+
     std::snprintf(line, sizeof(line), "Account server: %s", account_status());
     if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
@@ -583,7 +637,8 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
 
     // Which of Protarium's modules the long slot shows to the read just above. "older"
     // has the tasksheets on api.protarium.lol and the policy pair on Pretendo, "newer"
-    // has all four on Protarium's own hosts.
+    // has all four on Protarium's own hosts under protarium.lol, and "r17" has all four
+    // under protarium.online.
     std::snprintf(line, sizeof(line), "SpotPass layout: %s", spotpass_layout_name());
     if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
@@ -603,9 +658,9 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
 
     // The policy pair, shown only where it can move. Everywhere else these two would
     // read "left alone" on every boot forever, which is two lines of menu saying nothing.
-    // Roseverse moves them on either of Protarium's modules and Pretendo only on the
-    // newer one, so Pretendo shows them once that module is proved. They have never been
-    // read on a console, so this is where they're worth the space.
+    // Roseverse moves them on any of Protarium's modules and Pretendo only on the newer
+    // one and r17, so Pretendo shows them once one of those is proved. They have never
+    // been read on a console, so this is where they're worth the space.
     if (spotpass_moves_policy(Config::spotpass)) {
         std::snprintf(line, sizeof(line), "SpotPass %s, now %s", spotpass_policy_status(),
                       spotpass_policy_seen());
@@ -824,9 +879,31 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
         return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
     }
 
+    // What the update check came to, failures included, since the user never sees one.
+    char update_line[64];
+    update_status(update_line, sizeof(update_line));
+    std::snprintf(line, sizeof(line), "Update check: %s", update_line);
+    if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+        return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+    }
+
+    char install_line[96];
+    update_install_status(install_line, sizeof(install_line));
+    std::snprintf(line, sizeof(line), "Update install: %s", install_line);
+    if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+        return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+    }
+
     // What the YouTube Patcher did the last time YouTube started this boot, up to three lines,
     // and none with the patcher off and nothing started. youtube_report_line has how they read.
     for (size_t i = 0; youtube_report_line(i, line, sizeof(line)); ++i) {
+        if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
+            return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
+        }
+    }
+
+    // The last share to Miiverse this boot, step by step. olv_share_report_line has how they read.
+    for (size_t i = 0; olv_share_report_line(i, line, sizeof(line)); ++i) {
         if (add_stub(activity, line) != WUPSCONFIG_API_CALLBACK_RESULT_SUCCESS) {
             return WUPSCONFIG_API_CALLBACK_RESULT_ERROR;
         }
@@ -884,6 +961,14 @@ WUPSConfigAPICallbackStatus menu_opened(WUPSConfigCategoryHandle root) {
 
 void menu_closed() {
     log_storage(WUPSStorageAPI_SaveStorage(false), "save");
+
+    // An install chosen in this visit takes the relaunch over, since relaunching now would
+    // end its download, and makes it when the new file is in place. It relaunches for a
+    // changed setting too, even when the install fails.
+    if (update_install_begin(Config::change_needs_reboot)) {
+        Config::change_needs_reboot = false;
+        return;
+    }
 
     // Nothing changed, so nothing happens. This is the whole reason the relaunch keys
     // on the flag and not on the menu having been open: reading the Debug page is the
@@ -1008,6 +1093,8 @@ void Config::Init() {
     // Before anything that might log, so the setting governs this boot instead of
     // kicking in only after the first thing worth logging has already happened.
     log_set_enabled(load(KEY_DEBUG_LOG, 0) != 0);
+
+    update_set_enabled(load(KEY_UPDATE_CHECK, 1) != 0);
 
     olv_set_target(miiverse);
     token_set_target(miiverse);

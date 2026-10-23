@@ -85,8 +85,8 @@ size_t dns_lookups_refused();
 // that can say: the spelling of the name that arrived.
 //
 // A name still spelled the way the game asked means this hook runs before
-// Protarium's and theirs hasn't rewritten it yet. A name already spelled
-// protarium.lol means theirs ran first and this one sees what they produced. The
+// Protarium's and theirs hasn't rewritten it yet. A name already on protarium.lol or
+// protarium.online means theirs ran first and this one sees what they produced. The
 // refusal above covers both, so nothing depends on the answer, but it's the one
 // reading that explains a surprise, and it costs nothing to report.
 const char *dns_nesting();

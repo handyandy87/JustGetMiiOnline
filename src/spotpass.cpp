@@ -25,7 +25,7 @@
 namespace {
 
 // The two tasksheet slots. Same URL in two shapes, differing by one path segment,
-// and both builds aim both of them at a single host.
+// and every build aims both of them at a single host.
 constexpr uint32_t TASKSHEET_LONG_ADDRESS = 0xE229B1F4;
 constexpr uint32_t TASKSHEET_SHORT_ADDRESS = 0xE229B238;
 
@@ -37,8 +37,8 @@ constexpr uint32_t TASKSHEET_SHORT_ADDRESS = 0xE229B238;
 // move: the other half already holds what would be written, and the check that comes
 // before any write says so and writes nothing.
 //
-// Their newer module points this pair at itself as well, so there Pretendo moves all
-// four, the way Roseverse always has on both.
+// Their newer module and r17 point this pair at themselves as well, so there Pretendo
+// moves all four, the way Roseverse always has on every module.
 constexpr uint32_t BOSS_POLICY_HOST_ADDRESS = 0xE2299990;
 constexpr uint32_t BOSS_POLICY_LIST_ADDRESS = 0xE24B8A24;
 
@@ -92,6 +92,15 @@ static_assert(sizeof(PRETENDO_POLICY_LIST) == 52);
 static_assert(sizeof(ROSEVERSE_POLICY_LIST) == sizeof(PRETENDO_POLICY_LIST));
 static_assert(sizeof(PROTARIUM_POLICY_LIST) == 54);
 
+// r17's, on protarium.online, which is three characters longer again than .lol, so
+// these incumbents are five bytes longer than Pretendo's and Rose's strings rather than
+// two. Same argument, more room.
+constexpr char ONLINE_POLICY_HOST[] = "nppl.app.protarium.online";
+constexpr char ONLINE_POLICY_LIST[] =
+    "https://nppl.app.protarium.online/p01/policylist/1/1/UNK";
+static_assert(sizeof(ONLINE_POLICY_HOST) == 26);
+static_assert(sizeof(ONLINE_POLICY_LIST) == 57);
+
 // The whole slot, not just the string in it. This is the part worth reading twice.
 //
 // On Protarium's older module, Pretendo's URLs are three bytes longer than Protarium's,
@@ -141,7 +150,26 @@ constexpr char NPTS_SHORT_SLOT[] =
 static_assert(sizeof(NPTS_LONG_SLOT) == 67);
 static_assert(sizeof(NPTS_SHORT_SLOT) == 64);
 
-// Never more bytes written than were matched, on either module. Rose's are the same
+// r17's tasksheets, on npts.app.protarium.online, and the one place the slot is narrower
+// than the string their module writes into it.
+//
+// The long string is 70 bytes with its terminator, and the short slot starts 68 bytes
+// after the long one. Their module writes the long string first and the short one
+// second, so the short string's "ht" lands on the last two bytes of the long one and
+// the long slot never holds its own end. What it does hold, every time, is the first 68
+// bytes, ending in the "%" of "&l=%s". So that prefix is the incumbent and 68 is the
+// width matched, and nothing here ever reads or compares the long string's end. The
+// literal carries a terminator the compare never reaches; the width is what counts.
+constexpr char ONLINE_LONG_SLOT[] =
+    "https://npts.app.protarium.online/p01/tasksheet/%s/%s/%s/%s?c=%s&l=%";
+constexpr size_t ONLINE_LONG_WIDTH = sizeof(ONLINE_LONG_SLOT) - 1;
+static_assert(ONLINE_LONG_WIDTH == 68);
+static_assert(ONLINE_LONG_WIDTH == TASKSHEET_SHORT_ADDRESS - TASKSHEET_LONG_ADDRESS);
+constexpr char ONLINE_SHORT_SLOT[] =
+    "https://npts.app.protarium.online/p01/tasksheet/%s/%s/%s?c=%s&l=%s";
+static_assert(sizeof(ONLINE_SHORT_SLOT) == 67);
+
+// Never more bytes written than were matched, on any module. Rose's are the same
 // lengths as Pretendo's, asserted above, so these cover hers too.
 static_assert(sizeof(PRETENDO_LONG_URL) <= sizeof(API_LONG_SLOT));
 static_assert(sizeof(PRETENDO_SHORT_URL) <= sizeof(API_SHORT_SLOT));
@@ -149,30 +177,46 @@ static_assert(sizeof(PRETENDO_LONG_URL) <= sizeof(NPTS_LONG_SLOT));
 static_assert(sizeof(PRETENDO_SHORT_URL) <= sizeof(NPTS_SHORT_SLOT));
 static_assert(sizeof(PRETENDO_POLICY_LIST) <= sizeof(PROTARIUM_POLICY_LIST));
 static_assert(sizeof(PRETENDO_POLICY_HOST) <= sizeof(PROTARIUM_POLICY_HOST));
+static_assert(sizeof(PRETENDO_LONG_URL) <= ONLINE_LONG_WIDTH);
+static_assert(sizeof(PRETENDO_SHORT_URL) <= sizeof(ONLINE_SHORT_SLOT));
+static_assert(sizeof(PRETENDO_POLICY_LIST) <= sizeof(ONLINE_POLICY_LIST));
+static_assert(sizeof(PRETENDO_POLICY_HOST) <= sizeof(ONLINE_POLICY_HOST));
 
-// The widest slot either module leaves, which every read below is sized to.
-constexpr size_t WIDEST_SLOT = sizeof(NPTS_LONG_SLOT);
+// The widest slot any module leaves, which every read below is sized to. r17's long
+// slot, at the 68 bytes it's matched over rather than the 70 its string would take.
+constexpr size_t WIDEST_SLOT = ONLINE_LONG_WIDTH;
 static_assert(sizeof(API_LONG_SLOT) <= WIDEST_SLOT);
 static_assert(sizeof(API_SHORT_SLOT) <= WIDEST_SLOT);
+static_assert(sizeof(NPTS_LONG_SLOT) <= WIDEST_SLOT);
 static_assert(sizeof(NPTS_SHORT_SLOT) <= WIDEST_SLOT);
+static_assert(sizeof(ONLINE_SHORT_SLOT) <= WIDEST_SLOT);
 static_assert(sizeof(PROTARIUM_POLICY_LIST) <= WIDEST_SLOT);
 static_assert(sizeof(PROTARIUM_POLICY_HOST) <= WIDEST_SLOT);
+static_assert(sizeof(ONLINE_POLICY_LIST) <= WIDEST_SLOT);
+static_assert(sizeof(ONLINE_POLICY_HOST) <= WIDEST_SLOT);
 
-// Which of Protarium's two modules this console has, named by where each one points
+// Which of Protarium's three modules this console has, named by where each one points
 // the tasksheets.
 //
 // Api is the older: tasksheets on api.protarium.lol, the policy pair left on Pretendo.
 // Npts is the newer: tasksheets on npts.app.protarium.lol and the policy pair on
-// nppl.app.protarium.lol. Both write the same addresses in the same order and differ in
-// exactly these four strings, so the long tasksheet slot alone tells them apart, and
-// the other three are judged against whichever one it shows. The plugin can't see
-// either module's version string, so this is the only way it has of knowing.
+// nppl.app.protarium.lol. Online is r17: the same four hosts on protarium.online. All
+// three write the same addresses in the same order and differ in exactly these four
+// strings, so the long tasksheet slot alone tells them apart, and the other three are
+// judged against whichever one it shows. The plugin can't see any module's version
+// string, so this is the only way it has of knowing. Api and Npts go with #29.
 enum class Layout {
     NotRead,
     NotRecognized,
     Api,
     Npts,
+    Online,
 };
+
+// Whether the long slot proved a module, which is what every write waits for.
+bool proved(Layout which) {
+    return which == Layout::Api || which == Layout::Npts || which == Layout::Online;
+}
 
 // Where SpotPass is being sent. Which network that is comes from the setting now
 // rather than from a rule here. What's left here is what each answer costs in
@@ -202,17 +246,20 @@ constexpr Destination destination_for(SpotPass chosen) {
 // is to be trusted over the setting.
 constexpr const char *TASKSHEET_HOST_API = "api.protarium.lol";
 constexpr const char *TASKSHEET_HOST_NPTS = "npts.app.protarium.lol";
+constexpr const char *TASKSHEET_HOST_ONLINE = "npts.app.protarium.online";
 constexpr const char *TASKSHEET_HOST_PRETENDO = "npts.app.pretendo.cc";
 constexpr const char *TASKSHEET_HOST_ROSEVERSE = "nts.projectrose.cafe";
 constexpr const char *POLICY_HOST_PROTARIUM = "nppl.app.protarium.lol";
+constexpr const char *POLICY_HOST_ONLINE = "nppl.app.protarium.online";
 constexpr const char *POLICY_HOST_PRETENDO = "nppl.app.pretendo.cc";
 constexpr const char *POLICY_HOST_ROSEVERSE = "npl.projectrose.cafe";
 
 // What one of Protarium's modules leaves at one address.
 struct Incumbent {
     // The whole slot as that module leaves it. For the older module's tasksheets that is
-    // Protarium's string plus the tail stranded from Nintendo's; everywhere else it's
-    // just the string.
+    // Protarium's string plus the tail stranded from Nintendo's, for r17's long tasksheet
+    // it's the 68 bytes the short one doesn't overwrite, and everywhere else it's just
+    // the string.
     const char *bytes;
     size_t slot_width;
     // Just the incumbent string, terminator included. Equal to slot_width where there
@@ -229,6 +276,7 @@ struct Slot {
     const char *label;
     Incumbent api;
     Incumbent npts;
+    Incumbent online;
     const char *pretendo;
     size_t pretendo_length;
     const char *roseverse;
@@ -240,7 +288,7 @@ struct Slot {
     char *status;
     size_t status_size;
     // Reporting only, and the other half of the story: the hosts this address can hold
-    // beyond the two modules' own, and where the answer goes.
+    // beyond the modules' own, and where the answer goes.
     const char *pretendo_host;
     const char *roseverse_host;
     char *seen;
@@ -285,14 +333,27 @@ Layout layout = Layout::NotRead;
 Layout layout_seen = Layout::NotRead;
 
 const Incumbent &incumbent_for(const Slot &slot, Layout which) {
-    return which == Layout::Npts ? slot.npts : slot.api;
+    switch (which) {
+        case Layout::Npts: return slot.npts;
+        case Layout::Online: return slot.online;
+        case Layout::Api:
+        case Layout::NotRead:
+        case Layout::NotRecognized:
+            break;
+    }
+    return slot.api;
 }
 
-// The most either module leaves at this address, which is what a read that has to
-// cover both of them asks for.
+// The most any module leaves at this address, which is what a read that has to cover
+// all of them asks for.
 size_t widest(const Slot &slot) {
-    return slot.api.slot_width > slot.npts.slot_width ? slot.api.slot_width
-                                                       : slot.npts.slot_width;
+    size_t width = slot.api.slot_width;
+    for (const Incumbent *incumbent : {&slot.npts, &slot.online}) {
+        if (incumbent->slot_width > width) {
+            width = incumbent->slot_width;
+        }
+    }
+    return width;
 }
 
 // Which module the whole of this slot matches, compared at full width. Nothing short of
@@ -305,13 +366,17 @@ Layout layout_of(const Slot &slot, const unsigned char *bytes) {
     if (std::memcmp(bytes, slot.npts.bytes, slot.npts.slot_width) == 0) {
         return Layout::Npts;
     }
+    if (std::memcmp(bytes, slot.online.bytes, slot.online.slot_width) == 0) {
+        return Layout::Online;
+    }
     return Layout::NotRecognized;
 }
 
 // Whether this slot holds one of this plugin's own strings written over that module's,
 // with every byte past the write still the module's. That's still a proof of which
-// module it is, because the two leave different bytes there: the older one the last
-// byte of Nintendo's stranded tail, the newer one the end of its own longer string.
+// module it is, because each leaves different bytes there: the older one the last
+// byte of Nintendo's stranded tail, the newer one and r17 the end of their own longer
+// strings, which differ.
 bool written_over(const Slot &slot, const Incumbent &incumbent, const unsigned char *bytes) {
     const char *const strings[] = {slot.pretendo, slot.roseverse};
     const size_t lengths[] = {slot.pretendo_length, slot.roseverse_length};
@@ -330,6 +395,7 @@ const char *layout_name(Layout which) {
     switch (which) {
         case Layout::Api: return "older";
         case Layout::Npts: return "newer";
+        case Layout::Online: return "r17";
         case Layout::NotRecognized: return "not recognized";
         case Layout::NotRead: break;
     }
@@ -465,25 +531,30 @@ const Slot SLOTS[] = {
     {TASKSHEET_LONG_ADDRESS, "long",
      {API_LONG_SLOT, sizeof(API_LONG_SLOT), API_LONG_LENGTH, TASKSHEET_HOST_API},
      {NPTS_LONG_SLOT, sizeof(NPTS_LONG_SLOT), sizeof(NPTS_LONG_SLOT), TASKSHEET_HOST_NPTS},
+     {ONLINE_LONG_SLOT, ONLINE_LONG_WIDTH, ONLINE_LONG_WIDTH, TASKSHEET_HOST_ONLINE},
      PRETENDO_LONG_URL, sizeof(PRETENDO_LONG_URL), ROSEVERSE_LONG_URL,
      sizeof(ROSEVERSE_LONG_URL), false, long_status, sizeof(long_status),
      TASKSHEET_HOST_PRETENDO, TASKSHEET_HOST_ROSEVERSE, long_seen, sizeof(long_seen)},
     {TASKSHEET_SHORT_ADDRESS, "short",
      {API_SHORT_SLOT, sizeof(API_SHORT_SLOT), API_SHORT_LENGTH, TASKSHEET_HOST_API},
      {NPTS_SHORT_SLOT, sizeof(NPTS_SHORT_SLOT), sizeof(NPTS_SHORT_SLOT), TASKSHEET_HOST_NPTS},
+     {ONLINE_SHORT_SLOT, sizeof(ONLINE_SHORT_SLOT), sizeof(ONLINE_SHORT_SLOT),
+      TASKSHEET_HOST_ONLINE},
      PRETENDO_SHORT_URL, sizeof(PRETENDO_SHORT_URL), ROSEVERSE_SHORT_URL,
      sizeof(ROSEVERSE_SHORT_URL), false, short_status, sizeof(short_status),
      TASKSHEET_HOST_PRETENDO, TASKSHEET_HOST_ROSEVERSE, short_seen, sizeof(short_seen)},
     // On the older module the incumbent here is Pretendo's own string, the same one
     // Pretendo would write, so concerns() below keeps Pretendo away from this pair there
     // exactly as when it had no Pretendo string at all. There's no stranded tail on
-    // either module and no room argument to make, just an exact match of the whole
+    // any module and no room argument to make, just an exact match of the whole
     // incumbent.
     {BOSS_POLICY_LIST_ADDRESS, "policy",
      {PRETENDO_POLICY_LIST, sizeof(PRETENDO_POLICY_LIST), sizeof(PRETENDO_POLICY_LIST),
       POLICY_HOST_PRETENDO},
      {PROTARIUM_POLICY_LIST, sizeof(PROTARIUM_POLICY_LIST), sizeof(PROTARIUM_POLICY_LIST),
       POLICY_HOST_PROTARIUM},
+     {ONLINE_POLICY_LIST, sizeof(ONLINE_POLICY_LIST), sizeof(ONLINE_POLICY_LIST),
+      POLICY_HOST_ONLINE},
      PRETENDO_POLICY_LIST, sizeof(PRETENDO_POLICY_LIST), ROSEVERSE_POLICY_LIST,
      sizeof(ROSEVERSE_POLICY_LIST), true, policy_status, sizeof(policy_status),
      POLICY_HOST_PRETENDO, POLICY_HOST_ROSEVERSE, policy_seen, sizeof(policy_seen)},
@@ -492,6 +563,8 @@ const Slot SLOTS[] = {
       POLICY_HOST_PRETENDO},
      {PROTARIUM_POLICY_HOST, sizeof(PROTARIUM_POLICY_HOST), sizeof(PROTARIUM_POLICY_HOST),
       POLICY_HOST_PROTARIUM},
+     {ONLINE_POLICY_HOST, sizeof(ONLINE_POLICY_HOST), sizeof(ONLINE_POLICY_HOST),
+      POLICY_HOST_ONLINE},
      PRETENDO_POLICY_HOST, sizeof(PRETENDO_POLICY_HOST), ROSEVERSE_POLICY_HOST,
      sizeof(ROSEVERSE_POLICY_HOST), true, policy_host_status, sizeof(policy_host_status),
      POLICY_HOST_PRETENDO, POLICY_HOST_ROSEVERSE, policy_host_seen,
@@ -506,10 +579,11 @@ const Slot &LONG_SLOT = SLOTS[0];
 // Pretendo and the policy pair are the one pairing where that depends on the module. On
 // the older one the pair already holds Pretendo's strings, so there's nothing to move,
 // and the pair stays "left alone" and off the menu the way it always has there. Only
-// once the long slot has proved the newer module does Pretendo have any business with
-// it. Until then the module is unknown, so it's treated the same way.
+// once the long slot has proved the newer module or r17 does Pretendo have any business
+// with it. Until then the module is unknown, so it's treated the same way.
 bool concerns(const Slot &slot, Destination destination) {
-    return !(slot.policy && destination == Destination::Pretendo && layout != Layout::Npts);
+    const bool pair_is_theirs = layout == Layout::Npts || layout == Layout::Online;
+    return !(slot.policy && destination == Destination::Pretendo && !pair_is_theirs);
 }
 
 void report(const Slot &slot, const char *what) {
@@ -553,7 +627,7 @@ void report_already_moved(const IosuHandle &iosu, Destination destination) {
 // other build leaves the same 66 bytes this plugin's Pretendo write over the older
 // module does, because the byte after it is Nintendo's terminator either way.
 //
-// When it proves neither, nothing is written anywhere and every slot it concerns says
+// When it proves none, nothing is written anywhere and every slot it concerns says
 // so. The long slot keeps the one distinction worth keeping: the older module's string
 // with an unexpected tail is the room argument failing, reported as bytes the way
 // move_slot reports it.
@@ -572,13 +646,13 @@ Layout recognize(const IosuHandle &iosu, Destination destination) {
     }
 
     report_all("no layout", destination);
-    for (const Incumbent *incumbent : {&LONG_SLOT.api, &LONG_SLOT.npts}) {
+    for (const Incumbent *incumbent : {&LONG_SLOT.api, &LONG_SLOT.npts, &LONG_SLOT.online}) {
         if (incumbent->length < incumbent->slot_width &&
             std::memcmp(bytes, incumbent->bytes, incumbent->length) == 0) {
             report_tail(LONG_SLOT, *incumbent, bytes);
         }
     }
-    LOG("%08x holds neither module's tasksheet, leaving all four alone",
+    LOG("%08x holds none of the modules' tasksheets, leaving all four alone",
         LONG_SLOT.address);
     return Layout::NotRecognized;
 }
@@ -594,8 +668,7 @@ Layout layout_shown(const Slot &slot, const unsigned char *bytes) {
     if (found != Layout::NotRecognized) {
         return found;
     }
-    if ((layout == Layout::Api || layout == Layout::Npts) &&
-        written_over(slot, incumbent_for(slot, layout), bytes)) {
+    if (proved(layout) && written_over(slot, incumbent_for(slot, layout), bytes)) {
         return layout;
     }
     return Layout::NotRecognized;
@@ -609,7 +682,7 @@ Layout layout_shown(const Slot &slot, const unsigned char *bytes) {
 // incumbent. One read, then plain compares, so a slot IOSU won't answer for is reported
 // as unreadable rather than as anything about its contents.
 //
-// The read is as wide as either module's slot and the caller keeps it, so the layout
+// The read is as wide as any module's slot and the caller keeps it, so the layout
 // line can be judged on the same bytes the long line was. True when the read itself
 // worked, whatever it found.
 bool observe_slot(const IosuHandle &iosu, const Slot &slot, unsigned char *bytes,
@@ -650,7 +723,7 @@ bool observe_slot(const IosuHandle &iosu, const Slot &slot, unsigned char *bytes
         return true;
     }
 
-    for (const Incumbent *incumbent : {&slot.api, &slot.npts}) {
+    for (const Incumbent *incumbent : {&slot.api, &slot.npts, &slot.online}) {
         if (incumbent->length <= width &&
             std::memcmp(bytes, incumbent->bytes, incumbent->length) == 0) {
             std::snprintf(slot.seen, slot.seen_size, "%s", incumbent->host);
@@ -749,14 +822,14 @@ void spotpass_apply(SpotPass chosen) {
     applied = destination;
     have_applied = true;
 
-    // Once per boot. A read that failed or proved neither module gets another turn at
-    // the next application start, since nothing was written on either.
-    if (layout != Layout::Api && layout != Layout::Npts) {
+    // Once per boot. A read that failed or proved no module gets another turn at the
+    // next application start, since nothing was written on either.
+    if (!proved(layout)) {
         layout = recognize(iosu, destination);
         if (layout == Layout::NotRecognized) {
             report_already_moved(iosu, destination);
         }
-        if (layout != Layout::Api && layout != Layout::Npts) {
+        if (!proved(layout)) {
             return;
         }
     }
@@ -793,8 +866,8 @@ bool spotpass_moves_policy(SpotPass chosen) {
     // setting, which is when they're most worth reading.
     //
     // Pretendo shows them that way only, because it only reports on them once the long
-    // slot has proved the newer module. On the older one they stay hidden as they always
-    // have, since Pretendo has nothing to move there.
+    // slot has proved the newer module or r17. On the older one they stay hidden as they
+    // always have, since Pretendo has nothing to move there.
     return destination_for(chosen) == Destination::Roseverse || policy_reported;
 }
 

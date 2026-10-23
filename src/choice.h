@@ -146,12 +146,14 @@ constexpr bool spotpass_offers_roseverse(Account account, Miiverse miiverse, boo
 // The routed pairings get their account server's SpotPass and nothing else.
 //
 // For Protaverse on Pretendo that was decided, not overlooked, because Protarium's
-// SpotPass is a real second answer there. Their tasksheets come from
+// SpotPass is a real second answer there. Their older build's tasksheets come from
 // api.protarium.lol, which their discovery host also names as Protaverse's API, so
-// theirs is what feeds Protaverse's WaraWara Plaza. It also carries their Splatfest
-// and Conquest data, which would land on a console matchmaking on Pretendo's servers,
-// and that's what settled it. The pairing keeps Pretendo's SpotPass the way Juxt on
-// Protarium keeps Protarium's, and its WaraWara Plaza is fed from Pretendo's.
+// theirs is what feeds Protaverse's WaraWara Plaza. Their later builds moved the
+// tasksheets to npts.app hosts and that part didn't change. Their SpotPass also carries
+// their Splatfest and Conquest data, which would land on a console matchmaking on
+// Pretendo's servers, and that's what settled it. The pairing keeps Pretendo's SpotPass
+// the way Juxt on Protarium keeps Protarium's, and its WaraWara Plaza is fed from
+// Pretendo's.
 constexpr bool spotpass_valid(Account account, Miiverse miiverse, SpotPass chosen,
                               bool overrides) {
     if (chosen == spotpass_of(account)) {

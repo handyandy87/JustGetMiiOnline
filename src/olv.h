@@ -45,9 +45,19 @@
 // equal at the declarations in olv.cpp instead of being obvious at the call site.
 // Anything added there has to carry the same assertion.
 //
-// Nothing runs on the default. Picking Protaverse isn't a choice to write
+// Nothing runs on the default at launch. Picking Protaverse isn't a choice to write
 // Protarium's own values back, it's a choice to write nothing, so it can't
 // misfire and can't be told apart from this plugin not being there at all.
+//
+// A late load is the exception to both rules, and it's narrowed instead by where it
+// looks. Their module patches the library at application start, so a title that loads
+// nn_olv afterwards gets Nintendo's string untouched, and Miiverse in it fails with
+// 115-5004 whichever Miiverse is selected. So when the loader reports nn_olv loading,
+// the watch below writes the selected Miiverse's slot over Nintendo's, and over either
+// Protaverse leftover, and that includes Protaverse on the default. It searches that one
+// module's data and read-only ranges and nothing else, which is what keeps it off their
+// module's copy of Nintendo's string: that copy is their search key and lives in their
+// module, never in nn_olv. Each write is still exactly the 39 bytes it matched.
 
 #include "choice.h"
 
@@ -128,6 +138,35 @@ bool olv_sweep_bounded();
 
 size_t olv_late_loads_seen();
 size_t olv_late_load_swaps();
+
+// One line per late load the watch acted on, newest first, for the Debug page: the process,
+// the module, which slot it found, how many it wrote and how many read back. False once there
+// are no more, which is right away until a title late-loads the library.
+bool olv_late_report_line(size_t index, char *out, size_t size);
+
+// The discovery hosts nn_olv holds in its own data and read-only ranges, one bit each, for a
+// caller that has just acquired the library and wants to know where it points before using
+// it. A name counts only where it stands on its own, not inside a longer host name.
+constexpr uint32_t OLV_HOST_NINTENDO = 1u << 0;
+constexpr uint32_t OLV_HOST_PROTAVERSE_LOL = 1u << 1;
+constexpr uint32_t OLV_HOST_PROTAVERSE_ONLINE = 1u << 2;
+constexpr uint32_t OLV_HOST_JUXT = 1u << 3;
+constexpr uint32_t OLV_HOST_ROSEVERSE = 1u << 4;
+
+// `listed` says whether the loader listed nn_olv at all. Two kilobytes of the loader's
+// records go on the caller's stack, so call it from a thread with room, not from a hook.
+uint32_t olv_scan_hosts(bool *listed);
+
+// The hosts a scan found, by name and joined with "+", or "none".
+void olv_hosts_label(uint32_t hosts, char *out, size_t size);
+
+// The bits that mean a library pointed at this Miiverse.
+uint32_t olv_hosts_of(Miiverse miiverse);
+
+// Whether a late load in this boot could point the library at the selected Miiverse. False
+// only for Protaverse on a console where the installed build's domain wasn't read, since
+// then there is no slot this plugin knows to write.
+bool olv_late_target_known();
 
 // THE ONE POINT BETWEEN THEIR WRITE AND THE LIBRARY'S READ
 //

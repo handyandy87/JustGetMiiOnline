@@ -15,6 +15,8 @@
 */
 
 #include "olv.h"
+#include "youtube.h"
+#include "account.h"
 #include "logger.h"
 #include "scan.h"
 #include "token.h"
@@ -27,6 +29,7 @@
 #include <coreinit/memory.h>
 #include <coreinit/thread.h>
 
+#include <cstdio>
 #include <cstring>
 
 namespace {
@@ -38,8 +41,14 @@ namespace {
 // where it was: "ndpoint" and the final NUL. So all 39 bytes are known, and matching
 // all 39 is what proves this is Nintendo's slot after Protarium got to it, rather
 // than some other string that just happens to start the same way.
+//
+// That's their older two builds, on protarium.lol, kept until #29 drops it. r17 moved to
+// protarium.online and writes 34 bytes, so what it strands is "oint" and the final NUL,
+// and the key is all 39 again for the same reason.
 constexpr char PROTAVERSE_SLOT[39] = "disc.protarium.lol/v1/endpoint\0" "ndpoint";
 static_assert(sizeof(PROTAVERSE_SLOT) == 39);
+constexpr char PROTAVERSE_ONLINE_SLOT[39] = "disc.protarium.online/v1/endpoint\0" "oint";
+static_assert(sizeof(PROTAVERSE_ONLINE_SLOT) == 39);
 
 // Juxt's is 37 characters. It goes in with its own terminator and one more NUL to
 // fill the slot, so the write is 39 bytes over the 39 that matched.
@@ -54,13 +63,22 @@ static_assert(sizeof(JUXT_SLOT) == 39);
 constexpr char ROSEVERSE_SLOT[39] = "disco.olv.projectrose.cafe/v1/endpoint";
 static_assert(sizeof(ROSEVERSE_SLOT) == 39);
 
+// Nintendo's own, which a library loaded after their module's turn still holds. 38
+// characters and the terminator, the whole slot. Only the late-load watch keys on it, and
+// only inside the library that just loaded: olv.h has why that range is the whole rule.
+constexpr char NINTENDO_SLOT[39] = "discovery.olv.nintendo.net/v1/endpoint";
+static_assert(sizeof(NINTENDO_SLOT) == 39);
+
 // The equal-width rule used to be obvious at the call site, back when the compiler
 // could see both objects were char[39] there. A replacement picked at runtime is
 // just a const char * by the time it reaches swap_all, and the compiler stops
 // proving anything about it, so the proof moves up here. Every replacement is the
 // width of the key, and the key is the only thing that width is ever taken from.
+// Two keys now, so both of them are held to it.
 static_assert(sizeof(JUXT_SLOT) == sizeof(PROTAVERSE_SLOT));
 static_assert(sizeof(ROSEVERSE_SLOT) == sizeof(PROTAVERSE_SLOT));
+static_assert(sizeof(PROTAVERSE_ONLINE_SLOT) == sizeof(PROTAVERSE_SLOT));
+static_assert(sizeof(NINTENDO_SLOT) == sizeof(PROTAVERSE_SLOT));
 
 // The applet browser's allowlist: one record naming the only domain it will open.
 // It has to follow the discovery URL, or the applet refuses the page it was just
@@ -89,7 +107,10 @@ constexpr AllowlistEntry allowlist_for(const char *domain) {
     return entry;
 }
 
+// Their module writes one of the first two, depending on which domain the build is on.
+// The .lol record goes with #29.
 constexpr AllowlistEntry PROTAVERSE_ALLOWLIST = allowlist_for(".protarium.lol");
+constexpr AllowlistEntry PROTAVERSE_ONLINE_ALLOWLIST = allowlist_for(".protarium.online");
 constexpr AllowlistEntry JUXT_ALLOWLIST = allowlist_for(".pretendo.cc");
 constexpr AllowlistEntry ROSEVERSE_ALLOWLIST = allowlist_for(".projectrose.cafe");
 
@@ -202,6 +223,11 @@ const AllowlistEntry *allowlist_replacement() {
 
 // Swap the discovery URL wherever it appears in a range. It can land in more than
 // one place, so this counts every hit instead of returning after the first.
+//
+// Either generation's leftover counts. r17's is searched first and the older one only
+// when r17's found nothing, because a console runs one Inkay and its slot holds one of
+// the two, so an r17 console pays for one sweep rather than two. The older search goes
+// with #29.
 size_t swap_urls(uint32_t start, uint32_t size) {
     const char *replacement = url_replacement();
     if (replacement == nullptr) {
@@ -210,6 +236,11 @@ size_t swap_urls(uint32_t start, uint32_t size) {
     // One width, still taken from the key and never from the replacement. The static
     // assertions up by the declarations are what keep that safe now that the compiler
     // can't see the replacement's size here.
+    const size_t hits = swap_all(start, size, PROTAVERSE_ONLINE_SLOT, replacement,
+                                 sizeof(PROTAVERSE_ONLINE_SLOT));
+    if (hits > 0) {
+        return hits;
+    }
     return swap_all(start, size, PROTAVERSE_SLOT, replacement, sizeof(PROTAVERSE_SLOT));
 }
 
@@ -222,6 +253,83 @@ bool ends_with(const char *path, const char *suffix) {
     return std::strcmp(path + path_length - suffix_length, suffix) == 0;
 }
 
+// The Protaverse slot their installed build writes, picked from the account URL their
+// module wrote at boot, or null when that wasn't read. Null writes nothing, which is the
+// right way to be wrong here: a slot from the other generation would point the library at a
+// host that build may not run.
+const char *protaverse_slot() {
+    const char *url = account_protarium_url();
+    if (url == nullptr) {
+        return nullptr;
+    }
+    if (std::strstr(url, "protarium.online") != nullptr) {
+        return PROTAVERSE_ONLINE_SLOT;
+    }
+    if (std::strstr(url, "protarium.lol") != nullptr) {
+        return PROTAVERSE_SLOT;
+    }
+    return nullptr;
+}
+
+// What a late load gets, which unlike url_replacement includes Protaverse, because a late
+// load never had their module's turn and so holds Nintendo's string on every setting.
+const char *late_replacement() {
+    switch (target) {
+        case Miiverse::Juxt: return JUXT_SLOT;
+        case Miiverse::Roseverse: return ROSEVERSE_SLOT;
+        case Miiverse::Protaverse: return protaverse_slot();
+    }
+    return nullptr;
+}
+
+// Everything the late-load watch keys on, every one of them the slot's full 39 bytes. The
+// selected Miiverse's own slot is skipped when it comes round, since writing it over itself
+// would count as a swap.
+struct LateKey {
+    const char *slot;
+    const char *name;
+};
+constexpr LateKey LATE_KEYS[] = {
+    {NINTENDO_SLOT, "Nintendo"},
+    {PROTAVERSE_ONLINE_SLOT, "Protaverse .online"},
+    {PROTAVERSE_SLOT, "Protaverse .lol"},
+};
+
+// What the watch did, for the Debug page. Newest first and only the last few, since a title
+// that loads the library and lets it go again would otherwise fill the page.
+struct LateLoad {
+    uint32_t pid;
+    bool olv2;
+    // Which of LATE_KEYS it found, one bit each.
+    uint32_t found;
+    size_t written;
+    size_t read_back;
+    // Null when there was nothing to write: Protaverse with the build's domain unread.
+    const char *wrote;
+};
+constexpr size_t LATE_KEPT = 4;
+LateLoad late_kept[LATE_KEPT] = {};
+size_t late_kept_count = 0;
+
+// One range of a just-loaded library. Ranges that are absent or empty are reported by the
+// loader as zero, and skipped.
+void late_swap_range(uint32_t start, uint32_t size, const char *replacement, LateLoad &entry) {
+    if (start == 0 || size == 0) {
+        return;
+    }
+    for (size_t i = 0; i < sizeof(LATE_KEYS) / sizeof(LATE_KEYS[0]); ++i) {
+        if (LATE_KEYS[i].slot == replacement) {
+            continue;
+        }
+        const size_t hits = swap_all(start, size, LATE_KEYS[i].slot, replacement,
+                                     sizeof(NINTENDO_SLOT), &entry.read_back);
+        if (hits > 0) {
+            entry.found |= 1u << i;
+            entry.written += hits;
+        }
+    }
+}
+
 void rpl_loaded(OSDynLoad_Module, void *, OSDynLoad_NotifyReason reason,
                 OSDynLoad_NotifyData *rpl) {
     if (reason != OS_DYNLOAD_NOTIFY_LOADED || rpl == nullptr || rpl->name == nullptr) {
@@ -230,15 +338,42 @@ void rpl_loaded(OSDynLoad_Module, void *, OSDynLoad_NotifyReason reason,
     // The Miiverse library goes by one name in some titles and the other in the
     // rest, and watching only the first is how half your games silently stay where
     // they were.
-    if (!ends_with(rpl->name, OLV_RPL) && !ends_with(rpl->name, OLV2_RPL)) {
+    const bool olv2 = ends_with(rpl->name, OLV2_RPL);
+    if (!olv2 && !ends_with(rpl->name, OLV_RPL)) {
         return;
     }
 
     ++late_loads_seen;
+    const OSTime late_start = OSGetTime();
 
-    // Counted before the setting is consulted, so "seen above swapped" still means
-    // the library loaded and nothing was written, whichever reason that was.
-    late_load_swaps += swap_urls(rpl->dataAddr, rpl->dataSize);
+    LateLoad entry = {};
+    entry.pid = static_cast<uint32_t>(OSGetUPID());
+    entry.olv2 = olv2;
+    entry.wrote = late_replacement();
+
+    // The library's data and read-only ranges and nothing else. The slot is data, so its text
+    // has no business being searched, and anything past its own ranges is somebody else's
+    // memory, their module's search key included.
+    if (entry.wrote != nullptr) {
+        late_swap_range(rpl->dataAddr, rpl->dataSize, entry.wrote, entry);
+        late_swap_range(rpl->readAddr, rpl->readSize, entry.wrote, entry);
+    }
+
+    // Counted whatever the reason nothing was written, so "seen above swapped" still means the
+    // library loaded and held no slot this looks for.
+    late_load_swaps += entry.written;
+    LOG("late load of %s in pid %u: %u written in %u ms", rpl->name,
+        static_cast<unsigned>(entry.pid), static_cast<unsigned>(entry.written),
+        static_cast<unsigned>(OSTicksToMilliseconds(OSGetTime() - late_start)));
+
+    const size_t keep = late_kept_count < LATE_KEPT ? late_kept_count : LATE_KEPT - 1;
+    for (size_t i = keep; i > 0; --i) {
+        late_kept[i] = late_kept[i - 1];
+    }
+    late_kept[0] = entry;
+    if (late_kept_count < LATE_KEPT) {
+        ++late_kept_count;
+    }
 }
 
 // Ordinary stores, unlike everything else in this file.
@@ -297,9 +432,15 @@ void repoint_applet() {
         applet_url_swaps += swap_urls(base, size);
     }
 
-    applet_allowlist_swaps += swap_all(APPLET_WINDOW_START, APPLET_WINDOW_SIZE,
-                                       &PROTAVERSE_ALLOWLIST, allowlist,
-                                       sizeof(AllowlistEntry));
+    // Whichever record their build wrote, in the same order and for the same reason
+    // swap_urls tries the two discovery keys.
+    size_t swaps = swap_all(APPLET_WINDOW_START, APPLET_WINDOW_SIZE,
+                            &PROTAVERSE_ONLINE_ALLOWLIST, allowlist, sizeof(AllowlistEntry));
+    if (swaps == 0) {
+        swaps = swap_all(APPLET_WINDOW_START, APPLET_WINDOW_SIZE, &PROTAVERSE_ALLOWLIST,
+                         allowlist, sizeof(AllowlistEntry));
+    }
+    applet_allowlist_swaps += swaps;
 }
 
 DECL_FUNCTION(int, FSOpenFile, FSClient *client, FSCmdBlock *block, char *path, const char *mode,
@@ -563,6 +704,7 @@ DECL_FUNCTION(int32_t, OSCheckActiveThreads) {
         ++premain_runs;
         premain_pid = static_cast<uint32_t>(OSGetUPID());
         premain_swaps += apply_sweep();
+        youtube_premain();
     }
 
     return count;
@@ -610,6 +752,140 @@ size_t olv_applet_allowlist_swaps() { return applet_allowlist_swaps; }
 size_t olv_foreground_url_swaps() { return foreground_url_swaps; }
 size_t olv_late_loads_seen() { return late_loads_seen; }
 size_t olv_late_load_swaps() { return late_load_swaps; }
+
+bool olv_late_report_line(size_t index, char *out, size_t size) {
+    if (index >= late_kept_count) {
+        return false;
+    }
+    const LateLoad &entry = late_kept[index];
+    const char *module = entry.olv2 ? "nn_olv2" : "nn_olv";
+    if (entry.wrote == nullptr) {
+        std::snprintf(out, size, "Late pid %u %s: Protaverse build unknown, nothing written",
+                      static_cast<unsigned>(entry.pid), module);
+        return true;
+    }
+    const char *found = "no slot";
+    for (size_t i = 0; i < sizeof(LATE_KEYS) / sizeof(LATE_KEYS[0]); ++i) {
+        if (entry.found & (1u << i)) {
+            // More than one kind in one library is worth seeing as such, not as the first.
+            found = (entry.found & ~(1u << i)) != 0 ? "mixed slots" : LATE_KEYS[i].name;
+            break;
+        }
+    }
+    std::snprintf(out, size, "Late pid %u %s: %s, %u written, %u read back",
+                  static_cast<unsigned>(entry.pid), module, found,
+                  static_cast<unsigned>(entry.written), static_cast<unsigned>(entry.read_back));
+    return true;
+}
+
+namespace {
+
+// The names the host scan counts, in the order of the OLV_HOST_ bits.
+constexpr const char *OLV_HOST_NAMES[] = {
+    "discovery.olv.nintendo.net", "disc.protarium.lol", "disc.protarium.online",
+    "discovery.olv.pretendo.cc",  "disco.olv.projectrose.cafe",
+};
+constexpr const char *OLV_HOST_LABELS[] = {
+    "Nintendo", "Protaverse .lol", "Protaverse .online", "Juxt", "Roseverse",
+};
+constexpr size_t OLV_HOST_COUNT = sizeof(OLV_HOST_NAMES) / sizeof(OLV_HOST_NAMES[0]);
+static_assert(sizeof(OLV_HOST_LABELS) / sizeof(OLV_HOST_LABELS[0]) == OLV_HOST_COUNT);
+
+bool host_character(uint8_t byte) {
+    return (byte >= 'a' && byte <= 'z') || (byte >= 'A' && byte <= 'Z') ||
+           (byte >= '0' && byte <= '9') || byte == '.' || byte == '-';
+}
+
+// The same rule the browser engine's scan uses: a hit can't start in the middle of a name or
+// run on into a longer one, so "disc.protarium.lol" isn't found inside a host that merely
+// begins with it, and a name the range cuts off doesn't count.
+uint32_t scan_range(uint32_t start, uint32_t size) {
+    uint32_t hosts = 0;
+    const auto *bytes = reinterpret_cast<const uint8_t *>(start);
+    for (size_t host = 0; host < OLV_HOST_COUNT; ++host) {
+        const size_t length = std::strlen(OLV_HOST_NAMES[host]);
+        if (size <= length) {
+            continue;
+        }
+        for (size_t at = 0; at + length < size; ++at) {
+            if (bytes[at] != static_cast<uint8_t>(OLV_HOST_NAMES[host][0]) ||
+                std::memcmp(bytes + at, OLV_HOST_NAMES[host], length) != 0) {
+                continue;
+            }
+            if ((at > 0 && host_character(bytes[at - 1])) || host_character(bytes[at + length])) {
+                continue;
+            }
+            hosts |= 1u << host;
+            break;
+        }
+    }
+    return hosts;
+}
+
+} // namespace
+
+uint32_t olv_scan_hosts(bool *listed) {
+    *listed = false;
+    const int32_t count = OSDynLoad_GetNumberOfRPLs();
+    if (count <= 0) {
+        return 0;
+    }
+    OSDynLoad_NotifyData infos[64];
+    const uint32_t want = (static_cast<uint32_t>(count) < 64) ? static_cast<uint32_t>(count) : 64;
+    if (!OSDynLoad_GetRPLInfo(0, want, infos)) {
+        return 0;
+    }
+    uint32_t hosts = 0;
+    for (uint32_t i = 0; i < want; ++i) {
+        if (infos[i].name == nullptr || !ends_with(infos[i].name, OLV_RPL)) {
+            continue;
+        }
+        *listed = true;
+        if (infos[i].dataAddr != 0) {
+            hosts |= scan_range(infos[i].dataAddr, infos[i].dataSize);
+        }
+        if (infos[i].readAddr != 0) {
+            hosts |= scan_range(infos[i].readAddr, infos[i].readSize);
+        }
+    }
+    return hosts;
+}
+
+void olv_hosts_label(uint32_t hosts, char *out, size_t size) {
+    if (size == 0) {
+        return;
+    }
+    out[0] = '\0';
+    if (hosts == 0) {
+        std::snprintf(out, size, "none");
+        return;
+    }
+    size_t used = 0;
+    for (size_t host = 0; host < OLV_HOST_COUNT; ++host) {
+        if ((hosts & (1u << host)) == 0) {
+            continue;
+        }
+        const int wrote = std::snprintf(out + used, size - used, "%s%s", used ? "+" : "",
+                                        OLV_HOST_LABELS[host]);
+        if (wrote < 0 || static_cast<size_t>(wrote) >= size - used) {
+            return;
+        }
+        used += static_cast<size_t>(wrote);
+    }
+}
+
+uint32_t olv_hosts_of(Miiverse miiverse) {
+    switch (miiverse) {
+        case Miiverse::Protaverse: return OLV_HOST_PROTAVERSE_LOL | OLV_HOST_PROTAVERSE_ONLINE;
+        case Miiverse::Juxt: return OLV_HOST_JUXT;
+        case Miiverse::Roseverse: return OLV_HOST_ROSEVERSE;
+    }
+    return 0;
+}
+
+bool olv_late_target_known() {
+    return late_replacement() != nullptr;
+}
 
 size_t olv_tld_opens() { return tld_opens; }
 size_t olv_tld_reads() { return tld_reads; }

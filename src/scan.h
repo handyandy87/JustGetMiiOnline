@@ -36,5 +36,9 @@
 // get skipped, since a plugin is loaded somewhere inside the range being searched,
 // and a scan that finds its own search key clobbers it along with every iteration
 // after.
+//
+// `read_back`, when given, counts the writes whose bytes read back as the replacement once
+// the caches were flushed. A hit that reads back as anything else is still counted in the
+// return value, so the two numbers disagreeing is the reading that says a write didn't land.
 size_t swap_all(uint32_t start, uint32_t size, const void *key, const void *replacement,
-                size_t width);
+                size_t width, size_t *read_back = nullptr);
