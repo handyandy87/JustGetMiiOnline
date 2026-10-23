@@ -113,12 +113,9 @@ you start YouTube.
 | Miiverse, `Miiverse Service` | Protaverse, Juxt or Roseverse |
 | SpotPass, `SpotPass Server` | the account server's own, or Roseverse's (only on Roseverse) |
 
-**On the defaults it writes almost nothing outside the YouTube app.** The one exception is a
-title that loads Miiverse after it has started, which Protarium's module never gets to patch,
-so Miiverse in it fails with 115-5004. There I point that copy at the Miiverse you've
-selected, Protaverse included. Everything else checks the setting first and writes nothing on
-the defaults. Two things are on by default: the YouTube Patcher, which never touches anything
-but the YouTube app, and the update check below.
+**On the defaults it writes almost nothing outside the YouTube app.** The one exception: a
+title that loads Miiverse late gets pointed at the Miiverse you selected. On by default are
+the YouTube Patcher and the update check.
 
 Change any of the three, or run the WaraWara Plaza reset, and the console relaunches when you
 back out of the menu, which is what keeps a change whole. Back out having changed nothing and
@@ -171,30 +168,11 @@ the Miiverse in use.
 
 ### Update check
 
-Once per boot, a few seconds after the Wii U Menu comes up, the plugin asks GitHub for this
-repo's list of releases. If your release line has a newer one, you get a toast like
-`JustGetMiiOnline v1.0.4 is available` the next time you open the HOME Menu or start
-something. A v1 install only hears about v1 releases and a v2 install only about v2. It uses
-the CURLWrapperModule that comes with Aroma, and without it the check does nothing. If
-anything goes wrong, you see nothing, and the Debug page says what happened on its
-`Update check` line.
-
-When there's a newer release, the menu opened from the Wii U Menu also has an
-**Install vX.Y.Z** item. Set it to Yes and back out, and the plugin downloads the new
-`JustGetMiiOnline.wps`, checks it against the checksum published with the release, and only
-then swaps it in. Your old copy stays in the plugins folder as `JustGetMiiOnline.wps.bkup`,
-which Aroma doesn't load, so you can rename it back if you need to. Then the console relaunches
-into the new version. Start a game while it's downloading and the old version stays put, so
-just install again from the Wii U Menu. If the swap was already done, a toast asks you to
-restart instead. It only replaces `JustGetMiiOnline.wps`, so if you renamed the
-file, install by hand. A release that needs more than a file swap says so in the menu and
-points you at the Releases page, and the Debug page's `Update install` line says how an
-install went.
-
-That request goes straight from the console to GitHub, so GitHub sees your IP address when it
-runs. The request names the plugin's version and nothing about you or the console. If you'd
-rather it didn't happen, set **Check for Updates** to Disabled in the menu, and from the next
-boot on it won't.
+Once per boot, the plugin checks this repo's releases and shows a toast when your line (v1 or
+v2) has a newer one. The menu opened from the Wii U Menu then has **Install vX.Y.Z**: set it
+to Yes and back out, and the plugin downloads and verifies the release, keeps your old copy as
+`JustGetMiiOnline.wps.bkup`, and relaunches. It uses Aroma's CURLWrapperModule. GitHub sees
+your IP address when it checks; set **Check for Updates** to Disabled to turn it off.
 
 ## YouTube Patcher
 
@@ -237,11 +215,10 @@ comments on the GamePad in every version but Current (Official), and in 2013 and
 beside them for the video's details. Signed in, you can post comments and replies from the
 GamePad keyboard.
 
-**Share** is a button on the GamePad's video information screen in 2012, 2013 and 2016. It
-opens the console's own Miiverse post screen with the video's title, its channel and its
-link, and posts to the Miiverse selected in the menu. It needs Comments/Video Info on, and
-it takes YouTube a little longer to start while it's on, since the Miiverse library has to
-load with the app. Set Enable Miiverse Sharing to No and the button and the wait both go away.
+**Share**, on the GamePad's video information screen in 2012, 2013 and 2016, posts the video
+to the Miiverse selected in the menu. It needs Comments/Video Info on, and Enable Miiverse
+Sharing set to No hides it. Opening a YouTube video post from Miiverse plays that video in 2013
+and 2016.
 
 The first time YouTube starts, the patcher writes the revival host's root certificate to
 `sd:/wiiu/environments/aroma/plugins/config/JustGetMiiOnline/youtube/` and adds it beside the
